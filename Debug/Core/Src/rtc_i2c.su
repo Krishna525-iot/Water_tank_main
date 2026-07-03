@@ -1,0 +1,5 @@
+../Core/Src/rtc_i2c.c:9:16:dec2bcd	16	static
+../Core/Src/rtc_i2c.c:13:16:bcd2dec	16	static
+../Core/Src/rtc_i2c.c:17:6:RTC_Init	32	static
+../Core/Src/rtc_i2c.c:50:6:RTC_SetTimeDate	48	static
+../Core/Src/rtc_i2c.c:67:6:RTC_GetTimeDate	32	static

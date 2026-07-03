@@ -1,0 +1,8 @@
+../Core/Src/uart_commands.c:20:20:ack	16	static
+../Core/Src/uart_commands.c:21:20:err	16	static
+../Core/Src/uart_commands.c:28:6:UART_InitCommandSystem	4	static
+../Core/Src/uart_commands.c:34:6:UART_SendStatusPacket	104	static
+../Core/Src/uart_commands.c:61:14:next_token	24	static
+../Core/Src/uart_commands.c:71:13:parse_settings	136	static
+../Core/Src/uart_commands.c:125:13:send_timer_info	152	static
+../Core/Src/uart_commands.c:142:6:UART_HandleCommand	344	static

@@ -1,0 +1,7 @@
+../Core/Src/eeprom_i2c.c:8:19:EEPROM_WriteByte	1
+../Core/Src/eeprom_i2c.c:17:19:EEPROM_ReadByte	1
+../Core/Src/eeprom_i2c.c:23:19:EEPROM_WriteBuffer	3
+../Core/Src/eeprom_i2c.c:38:19:EEPROM_ReadBuffer	1
+../Core/Src/eeprom_i2c.c:44:16:ee_crc	1
+../Core/Src/eeprom_i2c.c:49:6:EEPROM_SaveMode	1
+../Core/Src/eeprom_i2c.c:60:9:EEPROM_LoadMode	4

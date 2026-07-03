@@ -1,0 +1,13 @@
+../Core/Src/device_id.c:31:17:did_crc16	4
+../Core/Src/device_id.c:44:17:uid_generate	3
+../Core/Src/device_id.c:74:6:DeviceID_Init	5
+../Core/Src/device_id.c:97:10:DeviceID_GetOwn	1
+../Core/Src/device_id.c:99:6:DeviceID_GetHex	1
+../Core/Src/device_id.c:140:13:paired_save	2
+../Core/Src/device_id.c:152:6:PairedDev_Init	4
+../Core/Src/device_id.c:168:10:PairedDev_Count	1
+../Core/Src/device_id.c:169:10:PairedDev_Get	2
+../Core/Src/device_id.c:171:6:PairedDev_IsAllowed	4
+../Core/Src/device_id.c:179:6:PairedDev_Add	6
+../Core/Src/device_id.c:190:6:PairedDev_Remove	4
+../Core/Src/device_id.c:205:6:PairedDev_Clear	1

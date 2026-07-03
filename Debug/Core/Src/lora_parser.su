@@ -1,0 +1,15 @@
+../Core/Inc/lora_protocol.h:194:20:LoRa_DID_IsValid	16	static
+../Core/Src/lora_parser.c:14:13:parse_hex_n	40	static
+../Core/Src/lora_parser.c:39:13:parse_uint_3digit	32	static
+../Core/Src/lora_parser.c:64:13:parse_did_only	16	static
+../Core/Src/lora_parser.c:79:13:parse_did_and_seq	24	static
+../Core/Src/lora_parser.c:106:13:parse_tanklevel_payload	32	static
+../Core/Src/lora_parser.c:156:6:LoRa_ParsePacket	16	static
+../Core/Src/lora_parser.c:251:5:LoRa_BuildHello	24	static
+../Core/Src/lora_parser.c:256:5:LoRa_BuildAck	24	static
+../Core/Src/lora_parser.c:261:5:LoRa_BuildReject	24	static
+../Core/Src/lora_parser.c:266:5:LoRa_BuildData	40	static
+../Core/Src/lora_parser.c:277:5:LoRa_BuildPing	32	static
+../Core/Src/lora_parser.c:283:5:LoRa_BuildPong	32	static
+../Core/Src/lora_parser.c:289:5:LoRa_BuildSyncReq	24	static
+../Core/Src/lora_parser.c:294:5:LoRa_BuildBye	24	static

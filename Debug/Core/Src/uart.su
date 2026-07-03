@@ -1,0 +1,5 @@
+../Core/Src/uart.c:17:6:UART_Init	8	static
+../Core/Src/uart.c:27:6:UART_TransmitString	16	static
+../Core/Src/uart.c:33:6:UART_TransmitPacket	24	static
+../Core/Src/uart.c:42:6:HAL_UART_RxCpltCallback	24	static
+../Core/Src/uart.c:74:6:UART_GetReceivedPacket	16	static,ignoring_inline_asm

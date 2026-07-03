@@ -1,0 +1,7 @@
+../Core/Src/adc.c:137:14:readChannelVoltage	4
+../Core/Src/adc.c:158:6:ADC_Init	2
+../Core/Src/adc.c:173:13:inject_wireless_level	8
+../Core/Src/adc.c:208:13:log_source_change	4
+../Core/Src/adc.c:267:6:ADC_ReadAllChannels	32
+../Core/Src/adc.c:439:9:ADC_CheckMaxVoltage	3
+../Core/Src/adc.c:447:13:ADC_GetActiveSourceString	3
