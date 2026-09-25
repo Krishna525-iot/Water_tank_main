@@ -214,6 +214,33 @@ void UART_HandleCommand(const char *pkt)
     if (!strcmp(cmd, "PING"))   { ack("@PONG#"); return; }
     if (!strcmp(cmd, "STATUS")) { UART_SendStatusPacket(); return; }
     if (!strcmp(cmd, "TINFO"))  { send_timer_info(); return; }
+    if (!strcmp(cmd, "TIME"))
+    {
+        /* TIME:SET:HH:MM:SS:DD:MM:YYYY:DOW   (DOW 1 = Sunday .. 7 = Saturday)
+         * TIME:GET */
+        char *sub = next_token(&ctx);
+        if (sub && !strcmp(sub, "SET"))
+        {
+            char *f[7];
+            for (int i = 0; i < 7; i++) f[i] = next_token(&ctx);
+            if (!f[6]) { err("@FORMAT#"); return; }
+            int hh = atoi(f[0]), mi = atoi(f[1]), ss = atoi(f[2]);
+            int dd = atoi(f[3]), mo = atoi(f[4]), yy = atoi(f[5]), dw = atoi(f[6]);
+            if (hh > 23 || mi > 59 || ss > 59 || dd < 1 || dd > 31 ||
+                mo < 1 || mo > 12 || yy < 2000 || yy > 2099 || dw < 1 || dw > 7)
+                { err("@TIME_ERR#"); return; }
+            RTC_SetTimeDate((uint8_t)ss, (uint8_t)mi, (uint8_t)hh,
+                            (uint8_t)dw, (uint8_t)dd, (uint8_t)mo, (uint16_t)yy);
+            RTC_GetTimeDate();
+            ack("@TIME_SET_OK#");
+        }
+        else if (!sub || strcmp(sub, "GET")) { err("@FORMAT#"); return; }
+        char resp[48];
+        snprintf(resp, sizeof(resp), "@TIME:%02u:%02u:%02u:%02u:%02u:%04u:%u#",
+                 time.hour, time.min, time.sec, time.dom, time.month, time.year, time.dow);
+        ack(resp);
+        return;
+    }
     if (!strcmp(cmd, "GETSETTINGS")) { send_settings(); return; }
     if (!strcmp(cmd, "SET") || !strcmp(cmd, "SETTINGS"))
     {

@@ -65,6 +65,20 @@ void RTC_SetTimeDate(uint8_t sec, uint8_t min, uint8_t hour,
                       buf, 7, 200);
     HAL_Delay(15);
 }
+/* Set-clock request, written over SWD from the PC (bench tool): fill in
+ * the fields, then write magic = 0xA5 last. Serviced from the main loop. */
+volatile RTC_SetRequest_t g_rtcSetRequest;
+
+void RTC_ServiceSetRequest(void)
+{
+    if (g_rtcSetRequest.magic != RTC_SET_REQUEST_MAGIC) return;
+    RTC_SetTimeDate(g_rtcSetRequest.sec, g_rtcSetRequest.min, g_rtcSetRequest.hour,
+                    g_rtcSetRequest.dow, g_rtcSetRequest.dom, g_rtcSetRequest.month,
+                    (uint16_t)(2000U + g_rtcSetRequest.yy));
+    g_rtcSetRequest.magic = 0;
+    RTC_GetTimeDate();
+}
+
 /* Multi-byte I2C reads on this STM32F1 corrupt the last byte (the year
  * read back as a copy of the month -> "2001"), so read register by
  * register. If the seconds roll over part-way, read once more. */

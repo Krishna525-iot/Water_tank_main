@@ -54,4 +54,14 @@ uint8_t RTC_I2C_ScanDevice(uint8_t start7, uint8_t end7);
 // Expose Time Object
 extern RTC_Time_t time;
 
+// Set-clock request (PC bench tool over SWD): fields first, magic last.
+// dow: 1 = Sunday .. 7 = Saturday (as shown on the LCD); yy = year - 2000
+#define RTC_SET_REQUEST_MAGIC 0xA5
+typedef struct {
+    uint8_t sec, min, hour, dow;
+    uint8_t dom, month, yy, magic;
+} RTC_SetRequest_t;
+extern volatile RTC_SetRequest_t g_rtcSetRequest;
+void RTC_ServiceSetRequest(void);
+
 #endif

@@ -291,6 +291,7 @@ int main(void)
         ADC_ReadAllChannels(&hadc1, &adcData);
 
         /* Step 6: RTC */
+        RTC_ServiceSetRequest();
         RTC_GetTimeDate();
 
         /* Step 7: UART commands */
