@@ -27,25 +27,26 @@ extern float g_voltageV;   // Volts
 #define ZMPT_FILTER_ALPHA      0.15f
 
 /* -----------------------------------------------------
-   CALIBRATION CONSTANT (YOU WILL UPDATE THIS)
-   AFTER YOU SEND ME:
-       1) Your ADC_RMS
-       2) Your Multimeter RMS
-
-   I will compute PERFECT factor.
-
-   Formula:
-       NEW = Multimeter_Voltage / ADC_RMS
+   Default voltage factor (Vrms = ADC_RMS * factor). Used until the
+   device is calibrated with CAL:V:<volts>, which stores its own
+   factor in EEPROM.
 ------------------------------------------------------ */
-#define ZMPT_CALIBRATION       250.0f   // temporary placeholder
+#define ZMPT_CALIBRATION       239.5f
 
 /* -------------------------------
  *  Function Prototypes
  * ------------------------------- */
+#include <stdbool.h>
+
 void ACS712_Init(ADC_HandleTypeDef *hadc);
 void ACS712_Update(void);
 
 float ACS712_ReadCurrent(void);
 float ZMPT_ReadVoltageRMS(void);
+
+bool  ACS712_CalibrateVoltage(float actualVolts);
+bool  ACS712_CalibrateCurrent(float actualAmps);   /* 0 = zero with no load */
+float ACS712_GetVoltageFactor(void);
+float ACS712_GetCurrentGain(void);
 
 #endif /* __ACS712_H__ */

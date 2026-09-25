@@ -6,6 +6,12 @@
 
 #define ADC_CHANNEL_COUNT 6
 
+/* Sensor inputs, measured on the board by grounding each terminal to
+ * COM: probe in water pulls its input LOW. The G.W terminal reaches
+ * PA5 (IN5) and the DRY-run terminal PA4 (IN4). */
+#define ADC_IDX_DRY_RUN   4
+#define ADC_IDX_GROUND_W  5
+
 /* Struct to hold ADC readings */
 typedef struct {
     uint16_t rawValues[ADC_CHANNEL_COUNT];

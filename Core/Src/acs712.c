@@ -1,5 +1,7 @@
 #include "acs712.h"
+#include "eeprom_i2c.h"
 #include "math.h"
+#include <string.h>
 
 float g_currentA = 0.0f;
 float g_voltageV = 0.0f;
@@ -10,8 +12,63 @@ static float acs_zero_offset = 0.0f;
 static float zmpt_offset = 1.65f;
 static float last_voltage = 0.0f;
 static float last_current = 0.0f;
-static float current_zero_correction = 0.0f;
+static float last_raw_current = 0.0f;
 #define ACS712_GAIN_CORR  1.25f
+#define ACS712_NOISE_DEADBAND_A  0.10f   /* readings below this (while motor is ON) are treated as noise */
+
+/* -------------------------------------------------------
+   CALIBRATION (kept in EEPROM, set from the app)
+     CAL:V:<volts>  - scale voltage to a meter reading
+     CAL:I:<amps>   - scale current to a clamp-meter reading
+     CAL:I:0        - motor on with no load: learn the zero
+-------------------------------------------------------- */
+#define EE_ADDR_CAL_BLOCK  0x0900
+#define CAL_SIG            0xCA1B
+
+typedef struct __attribute__((packed)) {
+    uint16_t sig;
+    float    vFactor;
+    float    iGain;
+    uint16_t crc;
+} CalBlock;
+
+static float zmpt_factor  = ZMPT_CALIBRATION;
+static float acs_gain     = ACS712_GAIN_CORR;
+static float acs_noise_a  = 0.0f;   /* RMS noise floor, subtracted in quadrature */
+
+extern volatile uint8_t motorStatus;   /* live relay state - 1=on, 0=off */
+
+static uint16_t cal_crc(const uint8_t *d, uint16_t len)
+{
+    uint16_t crc = 0xFFFF;
+    while (len--)
+    {
+        crc ^= *d++;
+        for (uint8_t i = 0; i < 8; i++)
+            crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : (crc >> 1);
+    }
+    return crc;
+}
+
+static void cal_save(void)
+{
+    CalBlock b;
+    memset(&b, 0, sizeof(b));
+    b.sig     = CAL_SIG;
+    b.vFactor = zmpt_factor;
+    b.iGain   = acs_gain;
+    b.crc     = cal_crc((uint8_t*)&b, sizeof(b) - 2);
+    EEPROM_WriteBuffer(EE_ADDR_CAL_BLOCK, (uint8_t*)&b, sizeof(b));
+}
+
+static void cal_load(void)
+{
+    CalBlock b;
+    EEPROM_ReadBuffer(EE_ADDR_CAL_BLOCK, (uint8_t*)&b, sizeof(b));
+    if (b.sig != CAL_SIG || b.crc != cal_crc((uint8_t*)&b, sizeof(b) - 2)) return;
+    if (b.vFactor > 50.0f && b.vFactor < 1000.0f) zmpt_factor = b.vFactor;
+    if (b.iGain   > 0.1f  && b.iGain   < 10.0f)   acs_gain    = b.iGain;
+}
 
 /* -------------------------------------------------------
    ADC READER
@@ -45,15 +102,6 @@ static void zmpt_calibrate_offset(void)
 
     zmpt_offset = sum / ZMPT_OFFSET_SAMPLES;
 }
-void ACS712_ZeroCurrentCalibrate(void)
-{
-    float sum = 0.0f;
-
-    for (int i = 0; i < 200; i++)
-        sum += ACS712_ReadCurrent();
-
-    current_zero_correction = sum / 200.0f;
-}
 
 /* -------------------------------------------------------
    OFFSET CALIBRATION (Current)
@@ -67,6 +115,45 @@ static void acs_calibrate_offset(void)
     acs_zero_offset = sum / ACS712_ZERO_SAMPLES;
 }
 
+/* True-RMS current in amps before noise removal */
+static float acs_read_raw_rms_a(void)
+{
+    const uint16_t SAMPLES = 2000;
+
+    float sum_dc = 0.0f;
+    float sum_sq = 0.0f;
+
+    for (uint16_t i = 0; i < SAMPLES; i++)
+    {
+        float v = adc_read(ACS712_ADC_CHANNEL);
+        sum_dc += v;
+
+        float ac = v - acs_zero_offset;
+        sum_sq += ac * ac;
+    }
+
+    /* Adaptive offset correction: tracks slow temperature / supply
+       drift, does NOT follow the AC waveform */
+    float new_offset = sum_dc / SAMPLES;
+    acs_zero_offset = (acs_zero_offset * 0.995f) + (new_offset * 0.005f);
+
+    float rms = sqrtf(sum_sq / SAMPLES);
+    last_raw_current = (rms / ACS712_SENS_30A) * acs_gain;
+    return last_raw_current;
+}
+
+/* The zero-load reading is RMS noise, not an offset: it must be removed
+ * in quadrature. The old code subtracted a correction measured through
+ * ACS712_ReadCurrent() while the motor was off - which returns 0 - so
+ * the correction was always 0 and ~0.4 A showed with no load. */
+void ACS712_ZeroCurrentCalibrate(void)
+{
+    float sum = 0.0f;
+    for (int i = 0; i < 10; i++)
+        sum += acs_read_raw_rms_a();
+    acs_noise_a = sum / 10.0f;
+}
+
 /* -------------------------------------------------------
    INITIALIZATION
 -------------------------------------------------------- */
@@ -75,12 +162,14 @@ void ACS712_Init(ADC_HandleTypeDef *hadc)
     hAdc = hadc;
 
     HAL_Delay(500);
+    cal_load();
 
     /* VERY IMPORTANT:
        NO LOAD must be connected here
     */
     acs_calibrate_offset();
     zmpt_calibrate_offset();
+    ACS712_ZeroCurrentCalibrate();
 }
 
 
@@ -108,19 +197,16 @@ float ZMPT_ReadVoltageRMS(void)
 
     adc_rms = sqrtf(sum_sq / ZMPT_RMS_SAMPLES);
 
-    /* --------------------------
-       DEBUG FOR PERFECT CALIB
-       (DO NOT REMOVE NOW)
-    --------------------------- */
+    float Vrms = adc_rms * zmpt_factor;
 
-    /* New calculation using multimeter voltage */
-    #define ZMPT_CALIBRATION 239.5f  // Updated calibration factor (Multimeter RMS = 5.0 V)
-
-    float Vrms = adc_rms * ZMPT_CALIBRATION;
-
-    last_voltage =
-        last_voltage * (1.0f - ZMPT_FILTER_ALPHA) +
-        (Vrms * ZMPT_FILTER_ALPHA);
+    /* Seed the filter on the first reading so the voltage protection
+       does not see a false under-voltage while it ramps up from 0 */
+    if (last_voltage <= 0.0f)
+        last_voltage = Vrms;
+    else
+        last_voltage =
+            last_voltage * (1.0f - ZMPT_FILTER_ALPHA) +
+            (Vrms * ZMPT_FILTER_ALPHA);
 
     g_voltageV = last_voltage;
     return g_voltageV;
@@ -131,59 +217,28 @@ float ZMPT_ReadVoltageRMS(void)
 -------------------------------------------------------- */
 float ACS712_ReadCurrent(void)
 {
-    const uint16_t SAMPLES = 2000;
+    float raw = acs_read_raw_rms_a();
 
-    float sum_dc = 0.0f;
-    float sum_sq = 0.0f;
-
-    /* -------- ADC sampling -------- */
-    for (uint16_t i = 0; i < SAMPLES; i++)
+    /* -------- Motor off = no load = 0A, no exceptions --------
+       If the relay isn't energized there is no current path, so the
+       reading is pure noise: keep learning the noise floor from it. */
+    if (!motorStatus)
     {
-        float v = adc_read(ACS712_ADC_CHANNEL);
-        sum_dc += v;
-
-        float ac = v - acs_zero_offset;
-        sum_sq += ac * ac;
+        acs_noise_a  = (acs_noise_a * 0.9f) + (raw * 0.1f);
+        last_current = 0.0f;
+        g_currentA   = 0.0f;
+        return 0.0f;
     }
 
-    /* -------- Adaptive offset correction --------
-       Tracks slow temperature / supply drift
-       Does NOT follow AC waveform
-    */
-    float new_offset = sum_dc / SAMPLES;
-    acs_zero_offset = (acs_zero_offset * 0.995f) + (new_offset * 0.005f);
-
-    /* -------- True RMS calculation -------- */
-    float adc_rms = sqrtf(sum_sq / SAMPLES);
-
-    /* -------- Convert to Amperes -------- */
-    float current = (adc_rms / ACS712_SENS_30A) * ACS712_GAIN_CORR;
-
-
-    /* -------- Remove zero-load bias --------
-       Your system shows ~0.7 A offset at no load
-       This removes it permanently
-    */
-    static float zero_current_corr = 0.0f;
-    static uint8_t zero_cal_done = 0;
-
-    if (!zero_cal_done)
-    {
-        /* Auto-zero once at startup (NO LOAD required) */
-        zero_current_corr = current;
-        zero_cal_done = 1;
-    }
-
-    current -= zero_current_corr;
+    float sq      = raw * raw - acs_noise_a * acs_noise_a;
+    float current = (sq > 0.0f) ? sqrtf(sq) : 0.0f;
 
     /* -------- Deadband (noise kill) -------- */
-    if (current < 0.05f)
+    if (current < ACS712_NOISE_DEADBAND_A)
         current = 0.0f;
 
     /* -------- Output smoothing -------- */
-    last_current = (last_current * 0.878f) + (current * 0.054f);
-
-
+    last_current = (last_current * (1.0f - ACS712_FILTER_ALPHA)) + (current * ACS712_FILTER_ALPHA);
 
     g_currentA = last_current;
     return g_currentA;
@@ -198,3 +253,50 @@ void ACS712_Update(void)
     ZMPT_ReadVoltageRMS();
     g_powerW = g_currentA * g_voltageV;
 }
+
+/* -------------------------------------------------------
+   USER CALIBRATION
+-------------------------------------------------------- */
+bool ACS712_CalibrateVoltage(float actualVolts)
+{
+    if (actualVolts < 50.0f || actualVolts > 400.0f) return false;
+    if (g_voltageV < 20.0f) return false;          /* no mains reading to scale */
+
+    float f = zmpt_factor * actualVolts / g_voltageV;
+    if (f <= 50.0f || f >= 1000.0f) return false;
+
+    zmpt_factor  = f;
+    last_voltage = actualVolts;
+    g_voltageV   = actualVolts;
+    cal_save();
+    return true;
+}
+
+bool ACS712_CalibrateCurrent(float actualAmps)
+{
+    if (!motorStatus) return false;                 /* needs the motor running */
+
+    if (actualAmps <= 0.0f)
+    {
+        /* Running with no load: whatever is read now is the zero */
+        acs_noise_a  = last_raw_current;
+        last_current = 0.0f;
+        g_currentA   = 0.0f;
+        return true;
+    }
+    if (actualAmps > 40.0f || g_currentA < 0.2f) return false;
+
+    float ratio = actualAmps / g_currentA;
+    float g     = acs_gain * ratio;
+    if (g <= 0.1f || g >= 10.0f) return false;
+
+    acs_gain     = g;
+    acs_noise_a *= ratio;
+    last_current = actualAmps;
+    g_currentA   = actualAmps;
+    cal_save();
+    return true;
+}
+
+float ACS712_GetVoltageFactor(void) { return zmpt_factor; }
+float ACS712_GetCurrentGain(void)   { return acs_gain; }

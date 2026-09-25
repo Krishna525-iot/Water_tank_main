@@ -14,16 +14,16 @@
  *                               No radio ever queried here.
  *
  *    WIRELESS_MODE_LORA   (1) — Step 2 calls LoRa_IsWirelessDataValid().
- *                               Valid   → inject LoRa  data CH0–3, CH5.
+ *                               Valid   → inject LoRa  data CH0–3, CH4.
  *                               Invalid → keep local ADC (link down).
  *                               RF433 not touched.
  *
  *    WIRELESS_MODE_RF433  (2) — Step 2 calls RF_IsWirelessDataValid().
- *                               Valid   → inject RF433 data CH0–3, CH5.
+ *                               Valid   → inject RF433 data CH0–3, CH4.
  *                               Invalid → keep local ADC (no packets).
  *                               LoRa not touched.
  *
- *  CH4 (ground water) is ALWAYS from local ADC in all modes.
+ *  CH5 (ground water, G.W terminal) is ALWAYS from local ADC in all modes.
  *
  * ── Voltage synthesis for CH0–CH3 (tank level probes) ───────────────
  *
@@ -35,12 +35,12 @@
  *     voltages[2] =  50 % probe
  *     voltages[3] =  25 % probe
  *
- * ── Voltage synthesis for CH5 (dry-run / well-dry sensor) ───────────
+ * ── Voltage synthesis for CH4 (dry-run / well-dry sensor) ───────────
  *
- *   model_handle.c: senseDryRun = (voltages[5] < 0.30 V)
+ *   model_handle.c: senseDryRun = (voltages[4] < 0.30 V) = water present
  *
- *   WD=0 (well has water) → 1.0 V → senseDryRun = false
- *   WD=1 (well DRY)       → 0.0 V → senseDryRun = true → motor stops
+ *   WD=0 (well has water) → 0.0 V → senseDryRun = true  (motor may run)
+ *   WD=1 (well DRY)       → 1.0 V → senseDryRun = false → dry test fails
  *
  * Fix v6.2:
  *   g_wireless_mode is now a proper file-scope global in main.c.
@@ -92,13 +92,15 @@ extern uint8_t g_wireless_mode;
 /* ── Injected probe voltages ─────────────────────────────────────────
  *  PROBE_SUBMERGED  < PROBE_THRESHOLD (0.50 V) → water detected
  *  PROBE_DRY        > PROBE_THRESHOLD           → no water
- *  SENSOR_WATER    ≥ 0.30 V  →  senseDryRun = false  (motor allowed)
- *  SENSOR_DRY      < 0.30 V  →  senseDryRun = true   (motor blocked)
+ *  SENSOR_WATER    < 0.30 V  →  senseDryRun = true   (water present)
+ *  SENSOR_DRY      > 0.50 V  →  senseDryRun = false  (no water)
  * ──────────────────────────────────────────────────────────────────── */
 #define PROBE_SUBMERGED  0.0f
 #define PROBE_DRY        1.0f
-#define SENSOR_WATER     1.0f
-#define SENSOR_DRY       0.0f
+/* Same as a real probe: water pulls the input LOW. (The original values
+ * were swapped, so WD=1 "well dry" read as water available.) */
+#define SENSOR_WATER     0.0f
+#define SENSOR_DRY       1.0f
 
 /* ── Module state ───────────────────────────────────────────────────── */
 float g_adcVoltages[ADC_CHANNEL_COUNT] = {0};
@@ -133,6 +135,12 @@ typedef enum
 
 static ADC_ActualSrc_t s_activeSrc = ADC_SRC_LOCAL;
 
+/* Last wireless level. Once a transmitter has been heard, its last
+ * level is held through link gaps; before that, local probes are used. */
+static bool     s_wlHaveData  = false;
+static uint8_t  s_wlLevel     = 0;
+static uint8_t  s_wlWellDry   = 0;
+
 /* ── Low-level single-channel ADC read ─────────────────────────────── */
 static float readChannelVoltage(ADC_HandleTypeDef *hadc, uint32_t channel)
 {
@@ -164,8 +172,8 @@ void ADC_Init(ADC_HandleTypeDef *hadc)
 /* ── inject_wireless_level ──────────────────────────────────────────
  *
  *  Shared by WIRELESS_MODE_LORA and WIRELESS_MODE_RF433.
- *  Overwrites data->voltages[0..3] from lvlPct, voltages[5] from
- *  wellDry.  CH4 is intentionally NOT touched (always local ADC).
+ *  Overwrites data->voltages[0..3] from lvlPct, the dry-run input (CH4)
+ *  from wellDry.  Ground water (CH5) is NOT touched (always local ADC).
  *
  *  s_filtered[0..3,5] is also updated so EMA state stays in sync
  *  and does not snap when switching back to local ADC after a drop.
@@ -191,13 +199,13 @@ static void inject_wireless_level(ADC_Data *data,
         data->rawValues[i] = (uint16_t)((data->voltages[i] * ADC_RES) / VREF);
 
     /* Well-dry → dry-run sensor voltage */
-    float v5 = (wellDry != 0u) ? SENSOR_DRY : SENSOR_WATER;
+    float vd = (wellDry != 0u) ? SENSOR_DRY : SENSOR_WATER;
 
-    data->voltages[5]  = v5;
-    s_filtered[5]      = v5;
-    data->rawValues[5] = (uint16_t)((v5 * ADC_RES) / VREF);
+    data->voltages[ADC_IDX_DRY_RUN]  = vd;
+    s_filtered[ADC_IDX_DRY_RUN]      = vd;
+    data->rawValues[ADC_IDX_DRY_RUN] = (uint16_t)((vd * ADC_RES) / VREF);
 
-    /* CH4 is NOT written — always local ADC */
+    /* Ground-water input is NOT written — always local ADC */
 }
 
 /* ── log_source_change ──────────────────────────────────────────────
@@ -253,14 +261,14 @@ static void log_source_change(ADC_ActualSrc_t newSrc,
  *      No override.  Local EMA values used for all channels.
  *
  *    WIRELESS_MODE_LORA   (1)
- *      If LoRa link valid  → inject into CH0–3, CH5.
+ *      If LoRa link valid  → inject into CH0–3, CH4.
  *      If LoRa link down   → local ADC (no RF433 fallback).
  *
  *    WIRELESS_MODE_RF433  (2)
- *      If RF433 link valid → inject into CH0–3, CH5.
+ *      If RF433 link valid → inject into CH0–3, CH4.
  *      If RF433 link down  → local ADC (no LoRa fallback).
  *
- *    CH4 is ALWAYS local ADC regardless of mode.
+ *    CH5 (ground water) is ALWAYS local ADC regardless of mode.
  *
  *  Step 3 : Level-flag events on FINAL voltages (after Step 2).
  * ──────────────────────────────────────────────────────────────────── */
@@ -317,12 +325,18 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
             {
                 uint8_t lvl = LoRa_GetWirelessTankLevel();
                 uint8_t wd  = LoRa_GetWirelessWellDry();
+                s_wlHaveData = true; s_wlLevel = lvl; s_wlWellDry = wd;
                 inject_wireless_level(data, lvl, wd);
                 log_source_change(ADC_SRC_LORA, lvl, wd);
             }
+            else if (s_wlHaveData)
+            {
+                /* LoRa link down → hold last received level */
+                inject_wireless_level(data, s_wlLevel, s_wlWellDry);
+            }
             else
             {
-                /* LoRa link down → local ADC fallback (Step 1 values) */
+                /* No transmitter heard yet → local probes (Step 1 values) */
                 log_source_change(ADC_SRC_LOCAL, 0u, 0u);
             }
         }
@@ -337,12 +351,18 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
             {
                 uint8_t lvl = RF_GetWirelessTankLevel();
                 uint8_t wd  = RF_GetWirelessWellDry();
+                s_wlHaveData = true; s_wlLevel = lvl; s_wlWellDry = wd;
                 inject_wireless_level(data, lvl, wd);
                 log_source_change(ADC_SRC_RF433, lvl, wd);
             }
+            else if (s_wlHaveData)
+            {
+                /* RF link silent → hold last received level */
+                inject_wireless_level(data, s_wlLevel, s_wlWellDry);
+            }
             else
             {
-                /* RF link silent → local ADC fallback (Step 1 values) */
+                /* No transmitter heard yet → local probes (Step 1 values) */
                 log_source_change(ADC_SRC_LOCAL, 0u, 0u);
             }
         }
@@ -395,7 +415,7 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
             continue;
         }
 
-        /* CH4: ground water — always local ADC */
+        /* CH4: dry-run sensor */
         if (i == 4u)
         {
             if (!s_level_flags[i] && v >= GROUND_THRESHOLD)
@@ -414,7 +434,7 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
             continue;
         }
 
-        /* CH5: dry-run sensor */
+        /* CH5: ground water — always local ADC */
         if (i == 5u)
         {
             if (!s_level_flags[i] && v >= DRY_VOLTAGE_THRESHOLD)

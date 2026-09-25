@@ -2,6 +2,7 @@
 #include "stm32f1xx_hal.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 extern I2C_HandleTypeDef hi2c2;
 #define DS1307_7BIT_ADDR    0x68
 #define DS1307_8BIT_ADDR    (DS1307_7BIT_ADDR << 1)
@@ -64,15 +65,32 @@ void RTC_SetTimeDate(uint8_t sec, uint8_t min, uint8_t hour,
                       buf, 7, 200);
     HAL_Delay(15);
 }
+/* Multi-byte I2C reads on this STM32F1 corrupt the last byte (the year
+ * read back as a copy of the month -> "2001"), so read register by
+ * register. If the seconds roll over part-way, read once more. */
+static bool rtc_read_regs(uint8_t *buf)
+{
+    for (uint8_t r = 0; r < 7; r++)
+        if (HAL_I2C_Mem_Read(&hi2c2, DS1307_8BIT_ADDR, r, I2C_MEMADD_SIZE_8BIT,
+                             &buf[r], 1, 50) != HAL_OK)
+            return false;
+    return true;
+}
+
 void RTC_GetTimeDate(void)
 {
     uint8_t buf[7];
-    if (HAL_I2C_Mem_Read(&hi2c2, DS1307_8BIT_ADDR,
-                         0x00, I2C_MEMADD_SIZE_8BIT,
-                         buf, 7, 200) != HAL_OK)
+    uint8_t secAgain;
+    for (uint8_t tries = 0; ; tries++)
     {
-        printf("RTC READ FAIL\r\n");
-        return;
+        if (!rtc_read_regs(buf))
+        {
+            printf("RTC READ FAIL\r\n");
+            return;
+        }
+        if (HAL_I2C_Mem_Read(&hi2c2, DS1307_8BIT_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT,
+                             &secAgain, 1, 50) != HAL_OK) break;
+        if (secAgain == buf[0] || tries >= 1) break;
     }
     time.sec   = bcd2dec(buf[0] & 0x7F);
     time.min   = bcd2dec(buf[1]);

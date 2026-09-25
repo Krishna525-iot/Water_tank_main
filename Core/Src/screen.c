@@ -8,6 +8,7 @@
 #include "acs712.h"
 #include "lora.h"          /* LoRa_EnterPairingMode, LoRa_GetLastPairedDID … */
 #include "device_id.h"     /* PairedDev_Count, PairedDev_Get, MAX_PAIRED     */
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -114,6 +115,7 @@ extern RTC_Time_t time;
 extern volatile bool     manualActive;
 extern volatile bool     semiAutoActive;
 extern volatile bool     timerActive;
+extern volatile bool     groundWater;
 extern volatile bool     countdownActive;
 extern volatile bool     twistActive;
 extern volatile bool     autoActive;
@@ -174,8 +176,8 @@ extern DryFSMState ModelHandle_GetDryState(void);
 extern bool      ModelHandle_GetDryRunEnable(void);
 extern uint16_t  ModelHandle_GetDryRunRetryGap(void);
 
-static const char* const main_menu[] = { "Add New Device", "Device Setup", "Reset To Default" };
-#define MAIN_MENU_COUNT 3
+static const char* const main_menu[] = { "Add New Device", "Device Setup", "Reset To Default", "Twist Mode" };
+#define MAIN_MENU_COUNT 4
 
 static uint8_t menu_idx      = 0;
 static uint8_t menu_view_top = 0;
@@ -187,9 +189,10 @@ static const char* const devset_menu_items[] = {
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
 
-#define DEBOUNCE_MS        15
-#define REPEAT_START_MS    600
-#define REPEAT_INTERVAL_MS 500
+#define REPEAT_START_MS      600    /* hold UP/DOWN this long to start stepping */
+#define REPEAT_INTERVAL_MS   300
+#define REPEAT_FAST_AFTER_MS 3000   /* then speed up                         */
+#define REPEAT_FAST_MS       100
 
 static uint8_t devset_idx      = 0;
 static uint8_t devset_view_top = 0;
@@ -257,6 +260,7 @@ void Screen_Init(void)
     ui = UI_WELCOME; last_ui = UI_NONE;
     screenNeedsRefresh = true;
     lastUserAction = HAL_GetTick();
+    clear_all_dash_sticky_flags();
 }
 static inline void refreshInactivityTimer(void) { lastUserAction = HAL_GetTick(); }
 
@@ -297,7 +301,6 @@ static void show_dash(void)
     DryFSMState dryFSMState    = ModelHandle_GetDryState();
     bool        dryEnabled     = ModelHandle_GetDryRunEnable();
     bool        sensorHasWater = ModelHandle_IsDryRunActive();
-    const char *gw             = (adcData.voltages[4] <= 0.01f) ? "YES" : "NO ";
 
     if (semiAutoActive)  sticky_set_semi();
     if (countdownActive) sticky_set_countdown();
@@ -330,9 +333,9 @@ static void show_dash(void)
         if (tankFull)
             snprintf(l1, sizeof(l1), "TANK FULL %02u:%02u", time.hour, time.min);
         else if (!senseDryRun)
-            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%02u:%02u", gw, time.hour, time.min);
+            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
         else
-            snprintf(l1, sizeof(l1), "G.W:%-3s    %02u:%02u",  gw, time.hour, time.min);
+            snprintf(l1, sizeof(l1), "G.W:%-3s    %02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
         lcd_line0(l0); lcd_line1(l1);
     }
     else
@@ -421,11 +424,15 @@ static void show_devset_menu(void)
             default: break;
         }
     }
+    /* Power Restore shows its current value right in the list */
+    const char *pwrLabel = (edit_settings_pwrrest == 0) ? "PwrRestore ON" : "PwrRestore OFF";
+    const char *name0 = (idx0 == 11) ? pwrLabel : devset_menu_items[idx0 < DEVSET_MENU_COUNT ? idx0 : 0];
+    const char *name1 = (idx1 == 11) ? pwrLabel : devset_menu_items[idx1 < DEVSET_MENU_COUNT ? idx1 : 0];
     if (idx0 < DEVSET_MENU_COUNT)
-        snprintf(l0, sizeof(l0), "%c%c%-14.14s", (devset_idx==idx0?'>':' '), star0, devset_menu_items[idx0]);
+        snprintf(l0, sizeof(l0), "%c%c%-14.14s", (devset_idx==idx0?'>':' '), star0, name0);
     else snprintf(l0, sizeof(l0), "                ");
     if (idx1 < DEVSET_MENU_COUNT)
-        snprintf(l1, sizeof(l1), "%c%c%-14.14s", (devset_idx==idx1?'>':' '), star1, devset_menu_items[idx1]);
+        snprintf(l1, sizeof(l1), "%c%c%-14.14s", (devset_idx==idx1?'>':' '), star1, name1);
     else snprintf(l1, sizeof(l1), "                ");
     lcd_line0(l0); lcd_line1(l1);
 }
@@ -494,10 +501,10 @@ void ModelHandle_1SecondTask(void)
 static void show_twist(void)
 {
     char l0[17];
-    snprintf(l0, sizeof(l0), "Tw %02us/%02us",
-             (unsigned)twistSettings.onDurationSeconds,
-             (unsigned)twistSettings.offDurationSeconds);
-    lcd_line0(l0); lcd_line1(twistActive ? "val:STOP   Next>" : "val:START  Next>");
+    unsigned onMin  = twistSettings.onDurationSeconds  / 60U;
+    unsigned offMin = twistSettings.offDurationSeconds / 60U;
+    snprintf(l0, sizeof(l0), "TW ON%3um OF%3um", onMin ? onMin : 5U, offMin ? offMin : 5U);
+    lcd_line0(l0); lcd_line1(twistActive ? "STOP twist  Sel>" : "START twist Sel>");
 }
 
 static void show_countdown(void)
@@ -506,9 +513,8 @@ static void show_countdown(void)
     if (!countdownActive)
     {
         uint8_t pct = ModelHandle_GetTankLevelPercent();
-        const char *gw = (adcData.voltages[4] <= 0.01f) ? "YES" : "NO ";
         snprintf(l0, sizeof(l0), "COUNT M:OFF%3d%%", pct);
-        snprintf(l1, sizeof(l1), "G.W:%-3s    %02u:%02u", gw, time.hour, time.min);
+        snprintf(l1, sizeof(l1), "           %02u:%02u", time.hour, time.min);
         lcd_line0(l0); lcd_line1(l1); return;
     }
     uint32_t sec = countdownDuration, min = sec / 60, s = sec % 60;
@@ -570,8 +576,7 @@ static void show_settings_maxrun(void)
 static void show_settings_pwrrest(void)
 {
     lcd_line0("Power Restore");
-    lcd_line1(edit_settings_pwrrest == 0 ? "YES       Next>" :
-              edit_settings_pwrrest == 1 ? "NO        Next>" : "LAST      Next>");
+    lcd_line1(edit_settings_pwrrest == 0 ? "ON        Next>" : "OFF       Next>");
 }
 static void show_settings_factory(void)
 {
@@ -787,6 +792,7 @@ static void menu_select(void)
                 ui = UI_ADD_DEVICE_MENU; break;
             case 1: start_settings_edit_flow(); return;
             case 2: reset_confirm_yes = false; ui = UI_RESET_CONFIRM; break;
+            case 3: ui = UI_TWIST; break;
         }
         screenNeedsRefresh = true; return;
     }
@@ -797,17 +803,17 @@ static void menu_select(void)
         {
             case 0:  edit_settings_dry_en ^= 1; apply_settings_core(); break;
             case 1:  edit_settings_gap_s   = (edit_settings_gap_s   > 0) ? 0 : 5;  apply_settings_core(); break;
-            case 2:  edit_settings_retry   = (edit_settings_retry   > 0) ? 0 : 5;  apply_settings_core(); break;
+            case 2:  edit_settings_retry   = (edit_settings_retry   > 0) ? 0 : 30;  apply_settings_core(); break;
             case 3:  edit_settings_uv      = (edit_settings_uv      > 0) ? 0 : 180; apply_settings_core(); break;
-            case 4:  edit_settings_ov      = (edit_settings_ov      > 0) ? 0 : 260; apply_settings_core(); break;
-            case 5:  edit_settings_ol      = (edit_settings_ol      > 0) ? 0 : 6;  apply_settings_core(); break;
-            case 6:  edit_settings_ul      = (edit_settings_ul      > 0) ? 0 : 2;  apply_settings_core(); break;
-            case 7:  edit_settings_maxrun  = (edit_settings_maxrun  > 0) ? 0 : 60; apply_settings_core(); break;
+            case 4:  edit_settings_ov      = (edit_settings_ov      > 0) ? 0 : 280; apply_settings_core(); break;
+            case 5:  edit_settings_ol      = (edit_settings_ol      > 0) ? 0 : 25;  apply_settings_core(); break;
+            case 6:  edit_settings_ul      = (edit_settings_ul      > 0) ? 0 : 2;   apply_settings_core(); break;
+            case 7:  edit_settings_maxrun  = (edit_settings_maxrun  > 0) ? 0 : 150; apply_settings_core(); break;
             case 8:  ui = UI_DEVSET_EDIT_DATE; break;
             case 9:  ui = UI_DEVSET_EDIT_TIME; break;
             case 10: ui = UI_DEVSET_EDIT_DAY;  break;
             case 11:
-                edit_settings_pwrrest = (edit_settings_pwrrest + 1) % 3;
+                edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
                 ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
             case 12:
                 edit_settings_factory_yes ^= 1;
@@ -904,7 +910,7 @@ void increase_edit_value(uint8_t step)
         case UI_SETTINGS_MAXRUN:
             if(edit_settings_maxrun==0)edit_settings_maxrun=10;
             else{edit_settings_maxrun+=step;if(edit_settings_maxrun>300)edit_settings_maxrun=300;} break;
-        case UI_SETTINGS_PWRREST: edit_settings_pwrrest=(edit_settings_pwrrest+1)%3; break;
+        case UI_SETTINGS_PWRREST: edit_settings_pwrrest=edit_settings_pwrrest?0:1; break;
         case UI_SETTINGS_FACTORY: edit_settings_factory_yes^=1; break;
         case UI_DEVSET_EDIT_DATE:
             if(edit_date_field==0){edit_date_dd+=step;if(edit_date_dd>31)edit_date_dd=31;}
@@ -963,108 +969,62 @@ void decrease_edit_value(uint8_t step)
 /* ════════════════════════════════════════════════════════════════════
  *  BUTTON DECODER
  * ════════════════════════════════════════════════════════════════════ */
+/* Screens where holding UP / DOWN steps the value / cursor repeatedly.
+ * On the dashboard UP / DOWN long presses are mode keys (semi-auto,
+ * countdown edit), so there must be no repeat there. */
+static bool ui_uses_hold_repeat(void)
+{
+    return ui != UI_DASH && ui != UI_WELCOME && ui != UI_COUNTDOWN &&
+           ui != UI_NONE && ui != UI_TWIST;
+}
+
+/* Debounce, short/long detection and queuing run in the 1 ms SysTick
+ * (switches.c), so presses are not missed while the loop is busy. */
 static UiButton decode_button_press(void)
 {
     #define BTN_COUNT 4
-    typedef struct {
-        bool raw, stable; uint32_t lastChange, pressTime, lastRepeat; bool longSent;
-    } BtnState;
-    static BtnState btn[BTN_COUNT] = {0};
+    static const UiButton shortMap[BTN_COUNT] = { BTN_RESET, BTN_SELECT, BTN_UP, BTN_DOWN };
+    static const UiButton longMap[BTN_COUNT]  = { BTN_RESET_LONG, BTN_SELECT_LONG,
+                                                  BTN_UP_LONG, BTN_DOWN_LONG };
+    static uint32_t lastRepeat[BTN_COUNT]    = {0};
+    static bool     repeatBlocked[BTN_COUNT] = {false};
     uint32_t now = HAL_GetTick();
 
     for (int i = 0; i < BTN_COUNT; i++)
     {
-        bool raw = Switch_IsPressed(i);
-        if (raw != btn[i].raw) { btn[i].raw = raw; btn[i].lastChange = now; }
-        if ((now - btn[i].lastChange) < DEBOUNCE_MS) continue;
-        if (btn[i].stable != raw)
+        uint32_t held = Switch_HeldMs(i);
+        if (held == 0) { lastRepeat[i] = 0; repeatBlocked[i] = false; }
+
+        SwitchEvent e = Switch_GetEvent(i);
+        if (e == SWITCH_EVT_SHORT) return shortMap[i];
+        if (e == SWITCH_EVT_LONG)
         {
-            btn[i].stable = raw;
-            if (raw) { btn[i].pressTime = now; btn[i].lastRepeat = now; btn[i].longSent = false; }
-            else if (!btn[i].longSent)
+            /* A long press that opens a screen must not keep stepping
+             * values there while the finger is still on the button */
+            repeatBlocked[i] = true;
+            return longMap[i];
+        }
+
+        if ((i == 2 || i == 3) && !repeatBlocked[i] && ui_uses_hold_repeat() &&
+            held >= REPEAT_START_MS)
+        {
+            uint32_t interval = (held >= REPEAT_FAST_AFTER_MS) ? REPEAT_FAST_MS
+                                                               : REPEAT_INTERVAL_MS;
+            if (lastRepeat[i] == 0 || (now - lastRepeat[i]) >= interval)
             {
-                switch (i) { case 0: return BTN_RESET; case 1: return BTN_SELECT;
-                             case 2: return BTN_UP;    case 3: return BTN_DOWN; }
+                /* Hold = repeated steps; release then sends no extra short */
+                Switch_ConsumeHold(i);
+                lastRepeat[i] = now;
+                return shortMap[i];
             }
         }
-        if (btn[i].stable && !btn[i].longSent && (now - btn[i].pressTime) >= LONG_PRESS_MS)
-        {
-            btn[i].longSent = true;
-            switch (i) { case 0: return BTN_RESET_LONG;  case 1: return BTN_SELECT_LONG;
-                         case 2: return BTN_UP_LONG;      case 3: return BTN_DOWN_LONG; }
-        }
-        if ((i == 2 || i == 3) && btn[i].stable &&
-            (now - btn[i].pressTime) >= REPEAT_START_MS &&
-            (now - btn[i].lastRepeat) >= REPEAT_INTERVAL_MS)
-        { btn[i].lastRepeat = now; return (i == 2) ? BTN_UP : BTN_DOWN; }
     }
     return BTN_NONE;
 }
 void Screen_HandleSwitches(void)
 {
     UiButton b = decode_button_press();
-    uint32_t now_sw = HAL_GetTick();
-
-    {
-        static uint32_t rep_start[2] = {0, 0};
-        static uint32_t rep_last[2]  = {0, 0};
-
-        /* Exclude UI_COUNTDOWN_EDIT_MIN from fast repeat –
-           it uses its own 3-second hold-repeat below */
-        bool in_menu = (ui != UI_DASH &&
-                        ui != UI_WELCOME &&
-                        ui != UI_COUNTDOWN &&
-                        ui != UI_COUNTDOWN_EDIT_MIN &&
-                        ui != UI_NONE);
-
-        if (in_menu)
-        {
-            for (int ri = 0; ri < 2; ri++)
-            {
-                bool held = Switch_IsPressed(ri == 0 ? 2 : 3);
-
-                if (held)
-                {
-                    if (rep_start[ri] == 0)
-                        rep_start[ri] = now_sw;
-
-                    if ((now_sw - rep_start[ri]) >= REPEAT_START_MS &&
-                        (now_sw - rep_last[ri]) >= REPEAT_INTERVAL_MS)
-                    {
-                        rep_last[ri] = now_sw;
-
-                        if (b == BTN_NONE)
-                            b = (ri == 0) ? BTN_UP : BTN_DOWN;
-                    }
-                }
-                else
-                {
-                    rep_start[ri] = 0;
-                    rep_last[ri]  = 0;
-                }
-            }
-        }
-        else
-        {
-            rep_start[0] = rep_start[1] = 0;
-            rep_last[0]  = rep_last[1]  = 0;
-        }
-    }
-
-    if (b == BTN_NONE)
-    {
-        /* ── Countdown-edit: hold-DOWN 3-second auto-increment ────── */
-        if (ui == UI_COUNTDOWN_EDIT_MIN && Switch_IsPressed(3))
-        {
-            if ((now_sw - cd_edit_repeat_time) >= CD_EDIT_REPEAT_MS)
-            {
-                if (edit_countdown_min < 180) edit_countdown_min++;
-                cd_edit_repeat_time = now_sw;
-                screenNeedsRefresh = true;
-            }
-        }
-        return;
-    }
+    if (b == BTN_NONE) return;
 
     refreshInactivityTimer();
 
@@ -1129,6 +1089,8 @@ void Screen_HandleSwitches(void)
                 break;
 
             case UI_COUNTDOWN_EDIT_MIN:
+                /* Leaving the edit screen keeps the new time for the button */
+                ModelHandle_SetCountdownDefaultMin(edit_countdown_min);
                 ui = UI_DASH;
                 break;
 
@@ -1204,6 +1166,7 @@ void Screen_HandleSwitches(void)
 
                 if (!autoActive)
                 {
+                    ModelHandle_ClearMaxRunFlag();
                     ModelHandle_StartAuto(edit_auto_gap_s, edit_auto_maxrun_min, edit_auto_retry);
                     clear_all_dash_sticky_flags();
                 }
@@ -1227,13 +1190,10 @@ void Screen_HandleSwitches(void)
                 return;
 
             case BTN_UP:
-                if (autoActive)
-                {
-                    if (!timerActive)
-                        ModelHandle_Button3_SinglePress();
-                    else
-                        ModelHandle_StopTimer();
-                }
+                if (!timerActive)
+                    ModelHandle_Button3_SinglePress();
+                else
+                    ModelHandle_StopTimer();
                 screenNeedsRefresh = true;
                 break;
 
@@ -1254,7 +1214,7 @@ void Screen_HandleSwitches(void)
             case BTN_DOWN:
                 if (!countdownActive)
                 {
-                    ModelHandle_StartCountdown(edit_countdown_min * 60);
+                    ModelHandle_StartCountdown((uint32_t)ModelHandle_GetCountdownDefaultMin() * 60UL);
                     countdown_was_active = true;
                     sticky_set_countdown();
                     ui = UI_COUNTDOWN;
@@ -1274,7 +1234,7 @@ void Screen_HandleSwitches(void)
                 if (!countdownActive)
                 {
                     ui = UI_COUNTDOWN_EDIT_MIN;
-                    edit_countdown_min = 1;
+                    edit_countdown_min = ModelHandle_GetCountdownDefaultMin();
                     cd_edit_repeat_time = HAL_GetTick();
                     screenNeedsRefresh = true;
                 }
@@ -1474,11 +1434,10 @@ void Screen_HandleSwitches(void)
 
     /* ════════════════════════════════════════════════════════════════
      *  Dedicated countdown-edit handler
-     *  DOWN short  = +1
-     *  DOWN hold   = auto +1 every 3 s  (handled in BTN_NONE block above)
-     *  UP          = −1
-     *  SELECT      = confirm & start countdown
-     *  RESET       = cancel  (already handled in BTN_RESET switch above)
+     *  DOWN short  = +1          UP short = −1
+     *  DOWN / UP held = repeat, speeding up after 3 s
+     *  SELECT      = save & start countdown
+     *  RESET       = save & back (handled in BTN_RESET switch above)
      * ════════════════════════════════════════════════════════════════ */
     if (ui == UI_COUNTDOWN_EDIT_MIN)
     {
@@ -1490,15 +1449,16 @@ void Screen_HandleSwitches(void)
             return;
         }
 
-//        if (b == BTN_UP || b == BTN_UP_LONG)
-//        {
-//            if (edit_countdown_min > 1) edit_countdown_min--;
-//            screenNeedsRefresh = true;
-//            return;
-//        }
+        if (b == BTN_UP || b == BTN_UP_LONG)
+        {
+            if (edit_countdown_min > 1) edit_countdown_min--;
+            screenNeedsRefresh = true;
+            return;
+        }
 
         if (b == BTN_SELECT || b == BTN_SELECT_LONG)
         {
+            ModelHandle_SetCountdownDefaultMin(edit_countdown_min);
             ModelHandle_StartCountdown(edit_countdown_min * 60);
             countdown_was_active = true;
             sticky_set_countdown();
@@ -1507,6 +1467,20 @@ void Screen_HandleSwitches(void)
             return;
         }
 
+        screenNeedsRefresh = true;
+        return;
+    }
+
+    /* Twist: starts with the settings saved from the app (TWIST:SET) */
+    if (ui == UI_TWIST)
+    {
+        if (b == BTN_SELECT || b == BTN_SELECT_LONG)
+        {
+            if (twistActive) ModelHandle_StopTwist();
+            else             ModelHandle_ResumeTwist();
+            clear_all_dash_sticky_flags();
+            ui = UI_DASH;
+        }
         screenNeedsRefresh = true;
         return;
     }

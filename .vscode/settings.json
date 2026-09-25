@@ -1,0 +1,18 @@
+{
+    "stm32-for-vscode.openOCDPath": false,
+    "stm32-for-vscode.makePath": false,
+    "stm32-for-vscode.armToolchainPath": false,
+
+    "cortex-debug.armToolchainPath": "C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.0.202411081344/tools/bin",
+    "cortex-debug.stlinkPath": "C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server.win32_2.2.200.202505060755/tools/bin/ST-LINK_gdbserver.exe",
+    "cortex-debug.stm32cubeprogrammer": "C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.200.202503041107/tools/bin",
+
+    "VsCodeTaskButtons.showCounter": false,
+    "VsCodeTaskButtons.tasks": [
+        { "label": "$(tools) Build",        "task": "Build",         "tooltip": "Build (Ctrl+Shift+B)" },
+        { "label": "$(zap) Flash",          "task": "Flash",         "tooltip": "Flash Debug/WT1.1.elf via ST-Link" },
+        { "label": "$(rocket) Build+Flash", "task": "Build & Flash", "tooltip": "Build then flash" },
+        { "label": "$(refresh) Rebuild",    "task": "Rebuild",       "tooltip": "Clean + Build" },
+        { "label": "$(trash) Clean",        "task": "Clean",         "tooltip": "Clean build output" }
+    ]
+}

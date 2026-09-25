@@ -1,43 +1,16 @@
-/* ====================================================================
- * main.c  —  RECEIVER (motor-controller node)
- *
- * Pin assignments verified against main.h (IOC updated 2026-06-09):
- *   RF_connector_Pin  = GPIO_PIN_1, RF_connector_GPIO_Port = GPIOD (PD1)
- *   RF_DATA_Pin       = GPIO_PIN_7, RF_DATA_GPIO_Port       = GPIOB (PB7)
- *   LORA_SELECT_Pin   = GPIO_PIN_15, GPIOA (PA15)
- *   LORA_STATUS_Pin   = GPIO_PIN_6,  GPIOB (PB6)
- *   Relay1/2/3        = PB0 / PB1 / PB2
- *   LED1/2/3          = PA8 / PA11 / PA12
- *   LED4/5            = PB8 / PB9
- *   SWITCH1–4         = PB12 / PB13 / PB14 / PB15
- *
- * v6.8 — RF received-data refresh corrected to match rf.c v6.8:
- *   • rf.c now guarantees RF_GetRxPacketCount() advances ONLY on a
- *     packet that passed the preamble gate, the sync word, CRC-8, AND
- *     LoRa_ParsePacket().  So when the counter changes here, a genuinely
- *     valid packet just arrived — no longer a noise-decoded false frame.
- *   • RF_GetLastRawPacket() now returns the POST-CRC payload (rf.c writes
- *     s_rfLastRawPacket only after CRC passes).  g_rfRxData.raw is
- *     therefore a real last-good packet, not the previous pre-CRC buffer
- *     that produced the misleading "@TL:000…/0x01-prefix" live view.
- *   • g_rfRxData.level/.wellDry are refreshed from the accessors on each
- *     advance, but they are only MEANINGFUL when .valid is true (a fresh
- *     TANKLEVEL within the 90 s window).  On a HELLO/ACK/etc. the level
- *     fields hold their last known TANKLEVEL value and .valid reflects
- *     freshness via RF_IsWirelessDataValid().
- *   • Status line now reports RF_frames (decode attempts) alongside
- *     RF_pkts (validated) and RF_err, so a stuck/garbage link is visible:
- *     frames climbing while pkts flat == carrier present but no valid
- *     frames (alignment / CRC), which is the symptom v6.8 fixes.
- *
- * Three operating modes via g_wireless_mode:
- *   WIRELESS_MODE_LOCAL  (0) — ADC probes only
- *   WIRELESS_MODE_LORA   (1) — SX1278 + local ADC fallback
- *   WIRELESS_MODE_RF433  (2) — XY-MK-5V OOK on PD1 + local ADC fallback
- *
- * PB7 is LoRa DIO0 — used only in WIRELESS_MODE_LORA.
- * PD1 is RF_connector_Pin — used only in WIRELESS_MODE_RF433.
- * ==================================================================== */
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  * @developer      : Amiya Krishna Gupta
+  * @start_date     : 11 August 2025
+  ******************************************************************************
+  * @attention
+  * ...
+  ******************************************************************************
+  */
+/* USER CODE END Header */
 
 #include "main.h"
 #include "lcd_i2c.h"
@@ -161,7 +134,26 @@ int main(void)
     MX_I2C2_Init();
     MX_TIM3_Init();
 
+    /* Clock is set from the device menu (date / time / day). The old
+     * one-time RTC correction wrote its flag to 0x0700, which is the
+     * device-ID block, and the forced power-restore override ignored
+     * the user's setting on every boot - both removed. */
     HAL_Delay(100u);
+
+    /* ── Fetch saved mode/settings from EEPROM ───────────────────────
+     * Moved here (right after I2C2/EEPROM is ready) so restore
+     * decisions are known before RTC/LCD/ADC/radio/Screen/Switches/
+     * Relay/LED/ACS712 all initialize. ModelHandle_OnPowerUp() (the
+     * actual motor-start decision) still runs later, after ADC has
+     * real sensor data - only the EEPROM fetch itself moved earlier.
+     * ------------------------------------------------------------- */
+    Timer_EEPROM_EnsureValid();
+    ModelHandle_LoadSettingsFromEEPROM();
+    ModelHandle_LoadAutoSettings();
+    ModelHandle_LoadTimerFromEEPROM();
+    ModelHandle_LoadTwistFromEEPROM();
+    ModelHandle_LoadModeState();
+    ModelHandle_LoadBuzzerSettings();
 
     UART_PrintLn("\r\n\r\n");
     UART_PrintLn("=========================================");
@@ -192,6 +184,7 @@ int main(void)
     /* ── Peripheral and subsystem init ───────────────────────────── */
     RTC_Init();
     lcd_init();
+
     ADC_Init(&hadc1);
 
     /* ── Radio init — ONLY for the selected mode ─────────────────── */
@@ -230,13 +223,6 @@ int main(void)
     ACS712_Init(&hadc1);
 
     HAL_Delay(100u);
-    Timer_EEPROM_EnsureValid();
-    ModelHandle_LoadSettingsFromEEPROM();
-    ModelHandle_LoadAutoSettings();
-    ModelHandle_LoadTimerFromEEPROM();
-    ModelHandle_LoadModeState();
-    ModelHandle_LoadCountdown();
-    ModelHandle_LoadBuzzerSettings();
     HAL_Delay(50u);
     ModelHandle_OnPowerUp();
     RTC_GetTimeDate();
@@ -315,7 +301,6 @@ int main(void)
         }
 
         /* Step 8: model */
-        ModelHandle_CheckAutoTimerActivation();
         ModelHandle_Process();
 
         /* Step 9: screen + LED */

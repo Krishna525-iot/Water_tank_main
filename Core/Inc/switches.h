@@ -9,11 +9,17 @@ typedef enum {
     SWITCH_EVT_LONG     // long threshold crossed (fires once while held)
 } SwitchEvent;
 
-/* Optional: change long press threshold (default 700 ms) */
+/* Change long press threshold (default 2000 ms) */
 void     Switches_SetLongPressMs(uint16_t ms);
 
 void Switches_Init(void);
-/* Polling API (call each loop or from a 5–10ms tick) */
-bool        Switch_IsPressed(uint8_t idx);   // debounced level (active-low)
-bool        Switch_WasPressed(uint8_t idx);  // edge (kept for backward-compat)
-SwitchEvent Switch_GetEvent(uint8_t idx);    // NEW: short/long event
+
+/* Called every 1 ms from SysTick_Handler: samples and debounces all
+ * switches and queues their events, so a quick tap is never lost while
+ * the main loop is busy (ADC sampling, LCD, EEPROM writes). */
+void        Switches_Tick1ms(void);
+
+bool        Switch_IsPressed(uint8_t idx);   // debounced level
+uint32_t    Switch_HeldMs(uint8_t idx);      // how long held now, 0 if released
+SwitchEvent Switch_GetEvent(uint8_t idx);    // queued short/long event
+void        Switch_ConsumeHold(uint8_t idx); // current press gives no more short/long events

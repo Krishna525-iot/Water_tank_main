@@ -1,0 +1,30 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug WT1.1 (ST-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "stlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/Debug/WT1.1.elf",
+            "device": "STM32F103C8",
+            "interface": "swd",
+            "svdFile": "C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.productdb.debug_2.2.200.202506131328/resources/cmsis/STMicroelectronics_CMSIS_SVD/STM32F103.svd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "Build",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "Attach WT1.1 (ST-Link)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "servertype": "stlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/Debug/WT1.1.elf",
+            "device": "STM32F103C8",
+            "interface": "swd",
+            "svdFile": "C:/ST/STM32CubeIDE_1.19.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.productdb.debug_2.2.200.202506131328/resources/cmsis/STMicroelectronics_CMSIS_SVD/STM32F103.svd"
+        }
+    ]
+}

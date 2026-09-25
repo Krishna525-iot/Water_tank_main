@@ -3,6 +3,7 @@
 #include "model_handle.h"
 #include "relay.h"
 #include "rtc_i2c.h"
+#include "acs712.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -79,11 +80,11 @@ static void parse_settings(char *ctx)
     int16_t  overL      = (int16_t)ModelHandle_GetOverloadLimit();
     int16_t  underL     = (int16_t)ModelHandle_GetUnderloadLimit();
     uint8_t  powerRest  = ModelHandle_GetPowerRestoreMode();
-    uint32_t dry_time   = 60;
+    uint32_t dry_time   = ModelHandle_GetDryRunRetryGap();
     uint8_t  dry_en     = ModelHandle_GetDryRunEnable() ? 1 : 0;
-    uint8_t  buzz_pump  = 1;
-    uint8_t  buzz_full  = 1;
-    uint8_t  buzz_empty = 1;
+    uint8_t  buzz_pump  = ModelHandle_GetBuzzerPumpOnSound();
+    uint8_t  buzz_full  = ModelHandle_GetBuzzerTankFullSound();
+    uint8_t  buzz_empty = ModelHandle_GetBuzzerTankEmptySound();
     bool     dry_en_set = false;
     char *saveptr;
     char *pair = strtok_r(ctx, ";", &saveptr);
@@ -122,6 +123,65 @@ static void parse_settings(char *ctx)
     snprintf(resp, sizeof(resp), "@SOK:DR:%d#", ModelHandle_GetDryRunEnable() ? 1 : 0);
     ack(resp);
 }
+/* Same keys as SET, so the app can show what the device really holds */
+static void send_settings(void)
+{
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+        "@SETTINGS:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
+        "BZ=%u;BF=%u;BE=%u;CD=%u#",
+        (unsigned)(ModelHandle_GetGapTime() / 60),
+        (unsigned)(ModelHandle_GetDryRunRetryGap() / 60),
+        (unsigned)ModelHandle_GetRetryCount(),
+        (unsigned)ModelHandle_GetMaxRunTime(),
+        (unsigned)ModelHandle_GetUnderVolt(),
+        (unsigned)ModelHandle_GetOverVolt(),
+        (int)ModelHandle_GetOverloadLimit(),
+        (int)ModelHandle_GetUnderloadLimit(),
+        (unsigned)ModelHandle_GetPowerRestoreMode(),
+        ModelHandle_GetDryRunEnable() ? 1u : 0u,
+        (unsigned)ModelHandle_GetBuzzerPumpOnSound(),
+        (unsigned)ModelHandle_GetBuzzerTankFullSound(),
+        (unsigned)ModelHandle_GetBuzzerTankEmptySound(),
+        (unsigned)ModelHandle_GetCountdownDefaultMin());
+    UART_TransmitPacket(buf);
+}
+
+static void send_twist_info(void)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "@TWIST:%u:%u:%02u:%02u:%02u:%02u:%u#",
+             (unsigned)(twistSettings.onDurationSeconds  / 60U),
+             (unsigned)(twistSettings.offDurationSeconds / 60U),
+             twistSettings.onHour,  twistSettings.onMinute,
+             twistSettings.offHour, twistSettings.offMinute,
+             twistActive ? 1u : 0u);
+    UART_TransmitPacket(buf);
+}
+
+/* Integer + tenths, no float printf needed */
+static void send_calibration(void)
+{
+    char buf[80];
+    int v  = (int)(g_voltageV * 10.0f + 0.5f);
+    int a  = (int)(g_currentA * 100.0f + 0.5f);
+    int vf = (int)(ACS712_GetVoltageFactor() * 10.0f + 0.5f);
+    int ig = (int)(ACS712_GetCurrentGain()   * 1000.0f + 0.5f);
+    snprintf(buf, sizeof(buf), "@CAL:V=%d.%d;I=%d.%02d;VF=%d.%d;IG=%d.%03d#",
+             v / 10, v % 10, a / 100, a % 100, vf / 10, vf % 10, ig / 1000, ig % 1000);
+    UART_TransmitPacket(buf);
+}
+
+/* App countdown value: minutes (1..180). Larger values are taken as
+ * seconds for older app builds that sent seconds. */
+static uint32_t countdown_arg_to_seconds(const char *s)
+{
+    uint32_t v = s ? (uint32_t)atoi(s) : 0;
+    if (v == 0)   return (uint32_t)ModelHandle_GetCountdownDefaultMin() * 60UL;
+    if (v <= 180) return v * 60UL;
+    return v;
+}
+
 static void send_timer_info(void)
 {
     char buf[80];
@@ -154,8 +214,49 @@ void UART_HandleCommand(const char *pkt)
     if (!strcmp(cmd, "PING"))   { ack("@PONG#"); return; }
     if (!strcmp(cmd, "STATUS")) { UART_SendStatusPacket(); return; }
     if (!strcmp(cmd, "TINFO"))  { send_timer_info(); return; }
+    if (!strcmp(cmd, "GETSETTINGS")) { send_settings(); return; }
     if (!strcmp(cmd, "SET") || !strcmp(cmd, "SETTINGS"))
-        { parse_settings(ctx); return; }
+    {
+        if (ctx && !strcmp(ctx, "GET")) { send_settings(); return; }
+        parse_settings(ctx);
+        send_settings();
+        return;
+    }
+    if (!strcmp(cmd, "FACTORY"))
+    {
+        char *sub = next_token(&ctx);
+        if (!sub || strcmp(sub, "RESET")) { err("@FORMAT#"); return; }
+        ModelHandle_FactoryReset();
+        ack("@FACTORY_RESET_OK#");
+        send_settings();
+        return;
+    }
+    if (!strcmp(cmd, "CAL"))
+    {
+        char *sub = next_token(&ctx);
+        char *val = next_token(&ctx);
+        if (!sub) { err("@FORMAT#"); return; }
+        if (!strcmp(sub, "GET")) { send_calibration(); return; }
+        if (!val) { err("@FORMAT#"); return; }
+        bool ok = false;
+        if      (!strcmp(sub, "V")) ok = ACS712_CalibrateVoltage((float)atof(val));
+        else if (!strcmp(sub, "I")) ok = ACS712_CalibrateCurrent((float)atof(val));
+        else { err("@FORMAT#"); return; }
+        ack(ok ? "@CAL_OK#" : "@CAL_ERR#");
+        send_calibration();
+        return;
+    }
+    if (!strcmp(cmd, "BUZZER"))
+    {
+        char *pump  = next_token(&ctx);
+        if (pump && !strcmp(pump, "GET")) { send_settings(); return; }
+        char *full  = next_token(&ctx);
+        char *empty = next_token(&ctx);
+        if (!pump || !full || !empty) { err("@FORMAT#"); return; }
+        ModelHandle_SetBuzzerSettings((uint8_t)atoi(pump), (uint8_t)atoi(full), (uint8_t)atoi(empty));
+        ack("@BUZZER_OK#");
+        return;
+    }
     if (!strcmp(cmd, "DRYRUN"))
     {
         char *state = next_token(&ctx);
@@ -201,9 +302,15 @@ void UART_HandleCommand(const char *pkt)
             ack("@MANUAL_OFF#");
         }
         else if (!strcmp(state, "MOTOR_ON"))
-            { ModelHandle_ManualToggleMotor(); ack("@MANUAL_MOTOR_ON#"); }
+        {
+            if (!Motor_GetStatus()) ModelHandle_ManualToggleMotor();
+            ack("@MANUAL_MOTOR_ON#");
+        }
         else if (!strcmp(state, "MOTOR_OFF"))
-            { ModelHandle_ManualToggleMotor(); ack("@MANUAL_MOTOR_OFF#"); }
+        {
+            if (Motor_GetStatus()) ModelHandle_ManualToggleMotor();
+            ack("@MANUAL_MOTOR_OFF#");
+        }
         return;
     }
     if (!strcmp(cmd, "AUTO"))
@@ -212,6 +319,7 @@ void UART_HandleCommand(const char *pkt)
         if (!state) { err("@FORMAT#"); return; }
         if (!strcmp(state, "ON"))
         {
+            ModelHandle_ClearMaxRunFlag();
             ModelHandle_StartAuto(ModelHandle_GetGapTime(),
                                   ModelHandle_GetMaxRunTime(),
                                   ModelHandle_GetRetryCount());
@@ -301,14 +409,28 @@ void UART_HandleCommand(const char *pkt)
         if (!sub) { err("@FORMAT#"); return; }
         if (!strcmp(sub, "ON") || atoi(sub) > 0)
         {
-            uint32_t seconds = (uint32_t)atoi(sub);
-            if (!strcmp(sub, "ON"))
-            {
-                char *dur_s = next_token(&ctx);
-                seconds = dur_s ? (uint32_t)atoi(dur_s) : 600;
-            }
+            const char *dur_s = !strcmp(sub, "ON") ? next_token(&ctx) : sub;
+            uint32_t seconds = countdown_arg_to_seconds(dur_s);
+            /* The app's duration also becomes the device button's duration */
+            ModelHandle_SetCountdownDefaultMin((uint16_t)((seconds + 59UL) / 60UL));
             ModelHandle_StartCountdown(seconds);
             ack("@COUNTDOWN_ON#");
+        }
+        else if (!strcmp(sub, "SET"))
+        {
+            char *min_s = next_token(&ctx);
+            if (!min_s) { err("@FORMAT#"); return; }
+            ModelHandle_SetCountdownDefaultMin((uint16_t)(countdown_arg_to_seconds(min_s) / 60UL));
+            ack("@COUNTDOWN_SET_OK#");
+        }
+        else if (!strcmp(sub, "GET"))
+        {
+            char resp[48];
+            snprintf(resp, sizeof(resp), "@COUNTDOWN:%u:%lu:%u#",
+                     (unsigned)ModelHandle_GetCountdownDefaultMin(),
+                     countdownActive ? (unsigned long)countdownDuration : 0UL,
+                     countdownActive ? 1u : 0u);
+            ack(resp);
         }
         else if (!strcmp(sub, "OFF"))
             { ModelHandle_StopCountdown(); ack("@COUNTDOWN_OFF#"); }
@@ -319,7 +441,9 @@ void UART_HandleCommand(const char *pkt)
         char *state = next_token(&ctx);
         if (!state) { err("@FORMAT#"); return; }
         if (!strcmp(state, "ON"))
-            { ModelHandle_StartTwist(5, 5, 0, 0, 0, 0); ack("@TWIST_ON#"); }
+            { ModelHandle_ResumeTwist(); ack("@TWIST_ON#"); send_twist_info(); }
+        else if (!strcmp(state, "GET"))
+            { send_twist_info(); }
         else if (!strcmp(state, "SET"))
         {
             char *on_s  = next_token(&ctx);
@@ -335,7 +459,9 @@ void UART_HandleCommand(const char *pkt)
                     onM  ? (uint8_t)atoi(onM)  : 0,
                     offH ? (uint8_t)atoi(offH) : 0,
                     offM ? (uint8_t)atoi(offM) : 0);
+            else { err("@FORMAT#"); return; }
             ack("@TWIST_SET_OK#");
+            send_twist_info();
         }
         else if (!strcmp(state, "OFF"))
             { ModelHandle_StopTwist(); ack("@TWIST_OFF#"); }
