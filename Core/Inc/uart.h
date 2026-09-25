@@ -6,12 +6,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
-#define UART_RX_BUFFER_SIZE 128
+#define UART_RX_BUFFER_SIZE 200   /* the web module's SET packet is ~120 chars */
 extern UART_HandleTypeDef huart1;
 void UART_Init(void);
 bool UART_GetReceivedPacket(char *buffer, size_t buffer_size);
 void UART_TransmitString(UART_HandleTypeDef *huart, const char *str);
 void UART_TransmitByte(UART_HandleTypeDef *huart, uint8_t byte);
-bool UART_GetReceivedPacket(char *buffer, size_t buffer_size);
+void UART_TransmitPacket(const char *payload);
 
 #endif

@@ -128,7 +128,7 @@ static void send_settings(void)
 {
     char buf[160];
     snprintf(buf, sizeof(buf),
-        "@SETTINGS:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
+        "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
         "BZ=%u;BF=%u;BE=%u;CD=%u#",
         (unsigned)(ModelHandle_GetGapTime() / 60),
         (unsigned)(ModelHandle_GetDryRunRetryGap() / 60),
@@ -150,7 +150,7 @@ static void send_settings(void)
 static void send_twist_info(void)
 {
     char buf[64];
-    snprintf(buf, sizeof(buf), "@TWIST:%u:%u:%02u:%02u:%02u:%02u:%u#",
+    snprintf(buf, sizeof(buf), "@TWIST_DATA:%u:%u:%02u:%02u:%02u:%02u:%u#",
              (unsigned)(twistSettings.onDurationSeconds  / 60U),
              (unsigned)(twistSettings.offDurationSeconds / 60U),
              twistSettings.onHour,  twistSettings.onMinute,
@@ -167,7 +167,7 @@ static void send_calibration(void)
     int a  = (int)(g_currentA * 100.0f + 0.5f);
     int vf = (int)(ACS712_GetVoltageFactor() * 10.0f + 0.5f);
     int ig = (int)(ACS712_GetCurrentGain()   * 1000.0f + 0.5f);
-    snprintf(buf, sizeof(buf), "@CAL:V=%d.%d;I=%d.%02d;VF=%d.%d;IG=%d.%03d#",
+    snprintf(buf, sizeof(buf), "@CAL_DATA:V=%d.%d;I=%d.%02d;VF=%d.%d;IG=%d.%03d#",
              v / 10, v % 10, a / 100, a % 100, vf / 10, vf % 10, ig / 1000, ig % 1000);
     UART_TransmitPacket(buf);
 }
@@ -236,7 +236,7 @@ void UART_HandleCommand(const char *pkt)
         }
         else if (!sub || strcmp(sub, "GET")) { err("@FORMAT#"); return; }
         char resp[48];
-        snprintf(resp, sizeof(resp), "@TIME:%02u:%02u:%02u:%02u:%02u:%04u:%u#",
+        snprintf(resp, sizeof(resp), "@TIME_DATA:%02u:%02u:%02u:%02u:%02u:%04u:%u#",
                  time.hour, time.min, time.sec, time.dom, time.month, time.year, time.dow);
         ack(resp);
         return;
@@ -453,7 +453,7 @@ void UART_HandleCommand(const char *pkt)
         else if (!strcmp(sub, "GET"))
         {
             char resp[48];
-            snprintf(resp, sizeof(resp), "@COUNTDOWN:%u:%lu:%u#",
+            snprintf(resp, sizeof(resp), "@COUNTDOWN_DATA:%u:%lu:%u#",
                      (unsigned)ModelHandle_GetCountdownDefaultMin(),
                      countdownActive ? (unsigned long)countdownDuration : 0UL,
                      countdownActive ? 1u : 0u);
