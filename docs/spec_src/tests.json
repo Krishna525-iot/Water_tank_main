@@ -1,0 +1,1136 @@
+[
+ [
+  "GEN",
+  "GEN-01",
+  "Any mode, level 50%",
+  "Touch the 75% probe for 3 s only, then release",
+  "Level stays 50% (change shorter than 5 s is ignored)"
+ ],
+ [
+  "GEN",
+  "GEN-01",
+  "Any mode, level 50%",
+  "Touch the 75% probe and hold 6 s",
+  "Level changes to 75% after about 5 s"
+ ],
+ [
+  "GEN",
+  "GEN-02",
+  "Wireless transmitter paired and sending",
+  "Switch the transmitter off for 2 min",
+  "Level keeps the last received value; no false TANK FULL"
+ ],
+ [
+  "GEN",
+  "GEN-03",
+  "Power restore ON, Auto, level 25%",
+  "Switch power off and on",
+  "Motor does not start before 10 s; starts after 10 s"
+ ],
+ [
+  "GEN",
+  "GEN-04",
+  "Auto, level 60%, motor off",
+  "Connect G.W for 5 s only, then remove",
+  "No reaction (change shorter than 10 s ignored)"
+ ],
+ [
+  "GEN",
+  "GEN-05",
+  "Change max run, voltages, buzzer, countdown time, a timer slot",
+  "Switch power off and on",
+  "All changed values are still set (device menu and app)"
+ ],
+ [
+  "GEN",
+  "GEN-05",
+  "Settings changed",
+  "Flash new firmware",
+  "All settings kept"
+ ],
+ [
+  "GEN",
+  "GEN-06",
+  "Clock set correctly",
+  "Power off for 10 min, then on",
+  "Clock shows the correct time and date"
+ ],
+ [
+  "GEN",
+  "GEN-07",
+  "Starter panel (or meter) on relay 2 and 3",
+  "Start the motor, then stop it",
+  "Relay 2 closes 2 s at start; relay 3 closes 2 s at stop"
+ ],
+ [
+  "BTN",
+  "BTN-01",
+  "Dashboard, level 50%",
+  "Short press button 1",
+  "Refill starts, motor ON; press again - Refill stops"
+ ],
+ [
+  "BTN",
+  "BTN-01",
+  "Dashboard",
+  "Hold button 1 for 2 s",
+  "Manual mode, motor ON; hold again - Manual off"
+ ],
+ [
+  "BTN",
+  "BTN-02",
+  "Dashboard",
+  "Short press button 2",
+  "Auto on; press again - motor off, screen AUTO M:OFF"
+ ],
+ [
+  "BTN",
+  "BTN-02",
+  "Dashboard",
+  "Hold button 2 for 2 s",
+  "Menu opens"
+ ],
+ [
+  "BTN",
+  "BTN-03",
+  "Dashboard",
+  "Short press button 3",
+  "Timer mode on; press again - Timer off"
+ ],
+ [
+  "BTN",
+  "BTN-03",
+  "Dashboard",
+  "Hold button 3 for 2 s",
+  "Semi-Auto starts; hold again - Semi-Auto off"
+ ],
+ [
+  "BTN",
+  "BTN-04",
+  "Dashboard",
+  "Short press button 4",
+  "Countdown starts with the saved time; press again - stops"
+ ],
+ [
+  "BTN",
+  "BTN-04",
+  "Dashboard",
+  "Hold button 4 for 2 s",
+  "Countdown edit screen opens (countdown is NOT started/stopped while holding)"
+ ],
+ [
+  "BTN",
+  "BTN-05",
+  "Menu",
+  "Menu > Twist Mode > Select",
+  "Twist starts; repeat - Twist stops"
+ ],
+ [
+  "BTN",
+  "BTN-06",
+  "Dashboard",
+  "Press each button very quickly (short tap)",
+  "Every tap is registered"
+ ],
+ [
+  "BTN",
+  "BTN-06",
+  "Device Setup > High Volt edit",
+  "Hold Up for 5 s",
+  "Value steps repeatedly and speeds up after 3 s"
+ ],
+ [
+  "AUTO",
+  "AUTO-03",
+  "No mode, level 75%",
+  "Press button 2",
+  "Auto, motor OFF (waits)"
+ ],
+ [
+  "AUTO",
+  "AUTO-05",
+  "Auto running",
+  "Raise level to 100%",
+  "Motor OFF within about 10 s; TANK FULL shown"
+ ],
+ [
+  "AUTO",
+  "AUTO-08",
+  "Dry run ON (2 min), dry sensor in water, level 25%",
+  "Start Auto, wait 3 min",
+  "Motor keeps running until tank full"
+ ],
+ [
+  "AUTO",
+  "AUTO-09",
+  "Dry run ON (2 min), dry sensor dry, testing gap 5 min",
+  "Start Auto",
+  "Motor OFF after 2 min; DRY shown; retries after 5 min"
+ ],
+ [
+  "AUTO",
+  "AUTO-10",
+  "Dry run ON, retry count 2, dry sensor dry",
+  "Start Auto, wait for 2 failed tests",
+  "Motor stays OFF; waits for G.W or user"
+ ],
+ [
+  "AUTO",
+  "AUTO-06",
+  "Auto waiting at 60% (motor off)",
+  "Connect G.W (YES), wait 10 s",
+  "Motor ON"
+ ],
+ [
+  "AUTO",
+  "AUTO-06",
+  "Auto waiting at 100%",
+  "Connect G.W",
+  "Motor stays OFF"
+ ],
+ [
+  "AUTO",
+  "AUTO-07",
+  "Auto running, G.W YES",
+  "Remove G.W, wait 10 s",
+  "Motor OFF; restarts after the testing gap or when G.W returns"
+ ],
+ [
+  "AUTO",
+  "AUTO-07",
+  "Auto stopped by G.W loss",
+  "Reconnect G.W before the testing gap ends",
+  "Motor ON after 10 s"
+ ],
+ [
+  "AUTO",
+  "AUTO-06",
+  "G.W probe not fitted",
+  "Run Auto normally",
+  "Auto works by level only"
+ ],
+ [
+  "AUTO",
+  "AUTO-11",
+  "Auto running",
+  "Press button 2",
+  "Motor OFF, screen AUTO M:OFF"
+ ],
+ [
+  "AUTO",
+  "AUTO-12",
+  "Auto running",
+  "Drop supply below low-voltage limit for 5 s",
+  "Motor OFF, VOLTERR; restarts 10 s after voltage returns"
+ ],
+ [
+  "AUTO",
+  "AUTO-12",
+  "Auto running",
+  "Load above over-load limit",
+  "Motor OFF after 3 s; may restart after the testing gap"
+ ],
+ [
+  "AUTO",
+  "AUTO-12",
+  "Max run 5 min, Auto running",
+  "Let it run 5 min",
+  "Motor OFF; may restart after the testing gap"
+ ],
+ [
+  "AUTO",
+  "AUTO-03",
+  "Example 1 from report: dry run 3 min, gap 15 min, 10:00 start, no water",
+  "At 10:05 connect G.W, keep dry sensor dry",
+  "10:03 OFF; 10:05:10 ON; 10:08 OFF; next try 10:23"
+ ],
+ [
+  "AUTO",
+  "AUTO-07",
+  "Example 2 from report: as above",
+  "At 10:05 connect G.W, at 10:06 remove it",
+  "10:05:10 ON; 10:06:10 OFF; next try 10:21"
+ ],
+ [
+  "AUTO",
+  "AUTO-01",
+  "No mode, level 25%",
+  "Press button 2",
+  "Auto, motor ON"
+ ],
+ [
+  "AUTO",
+  "AUTO-03",
+  "Auto waiting at 75%",
+  "Lower level to 50%",
+  "Motor stays OFF"
+ ],
+ [
+  "AUTO",
+  "AUTO-03",
+  "Auto waiting at 50%",
+  "Lower level to 25%",
+  "Motor ON"
+ ],
+ [
+  "AUTO",
+  "AUTO-02",
+  "No mode active, level 50%",
+  "Lower level to 25%, wait",
+  "Device starts Auto by itself, motor ON"
+ ],
+ [
+  "AUTO",
+  "AUTO-02",
+  "Auto switched off by button 2 (AUTO M:OFF), level 50%",
+  "Lower level to 25%",
+  "Auto does NOT start by itself"
+ ],
+ [
+  "AUTO",
+  "AUTO-02",
+  "Manual switched off by button 1 (MANUAL shown), level 50%",
+  "Lower level to 25%",
+  "Auto does NOT start by itself; screen still MANUAL"
+ ],
+ [
+  "AUTO",
+  "AUTO-13",
+  "Auto waiting at 75%",
+  "Short press button 1 (Refill)",
+  "Motor ON until full, then back to Auto"
+ ],
+ [
+  "MAN",
+  "MAN-01",
+  "Dashboard",
+  "Hold button 1 for 2 s",
+  "Manual, motor ON"
+ ],
+ [
+  "MAN",
+  "MAN-02",
+  "Manual running",
+  "Hold button 1 again",
+  "Motor OFF, screen MANUAL"
+ ],
+ [
+  "MAN",
+  "MAN-04",
+  "Manual running, tank-full buzzer on",
+  "Raise level to 100%",
+  "Motor keeps running; buzzer 30 s"
+ ],
+ [
+  "MAN",
+  "MAN-05",
+  "Manual running",
+  "Remove dry sensor and G.W",
+  "No effect on the motor"
+ ],
+ [
+  "MAN",
+  "MAN-03",
+  "Max run 5 min, Manual running",
+  "Let it run 5 min",
+  "Motor OFF, Manual ends"
+ ],
+ [
+  "MAN",
+  "MAN-01",
+  "App connected",
+  "App: switch motor ON, then OFF",
+  "Device follows the app"
+ ],
+ [
+  "MAN",
+  "MAN-06",
+  "Manual running",
+  "Low voltage for 5 s",
+  "Motor OFF; screen still MANUAL; motor does not restart when voltage returns"
+ ],
+ [
+  "MAN",
+  "MAN-06",
+  "Manual stopped by a fault (MANUAL shown)",
+  "Hold button 1",
+  "Motor ON again"
+ ],
+ [
+  "MAN",
+  "MAN-06",
+  "Max run 5 min, Manual running",
+  "Let it run 5 min",
+  "Motor OFF; screen still MANUAL"
+ ],
+ [
+  "TMR",
+  "TMR-03",
+  "Slot 1 = now to now+10 min, today selected",
+  "Start Timer (button 3)",
+  "Motor ON"
+ ],
+ [
+  "TMR",
+  "TMR-04",
+  "Timer running in slot 1",
+  "Wait until the slot OFF time",
+  "Motor OFF"
+ ],
+ [
+  "TMR",
+  "TMR-03",
+  "Slot 1 active time, today NOT selected",
+  "Start Timer",
+  "Motor stays OFF"
+ ],
+ [
+  "TMR",
+  "TMR-03",
+  "Slot crossing midnight 23:50-00:10",
+  "Wait through midnight",
+  "Motor ON 23:50 to 00:10"
+ ],
+ [
+  "TMR",
+  "TMR-01",
+  "Two slots set",
+  "Wait through both slots",
+  "Motor runs in both slots only"
+ ],
+ [
+  "TMR",
+  "TMR-11",
+  "Slot 1 enabled",
+  "App: uncheck slot 1, save, reload page",
+  "Slot 1 shows unchecked"
+ ],
+ [
+  "TMR",
+  "TMR-11",
+  "Slot 1 disabled",
+  "Reboot the device, open app timer page",
+  "Slot 1 still unchecked"
+ ],
+ [
+  "TMR",
+  "TMR-08",
+  "Dry run ON, dry sensor dry, slot active",
+  "Start Timer",
+  "Motor OFF after dry run time; retries after the testing gap while the slot is active"
+ ],
+ [
+  "TMR",
+  "TMR-09",
+  "Timer running, water confirmed",
+  "Remove water from dry sensor",
+  "Motor OFF; waits the testing gap"
+ ],
+ [
+  "TMR",
+  "TMR-06",
+  "Slot active, motor off (after dry fail)",
+  "Connect G.W, wait 10 s",
+  "Motor ON"
+ ],
+ [
+  "TMR",
+  "TMR-05",
+  "Outside every slot",
+  "Connect G.W",
+  "Nothing happens"
+ ],
+ [
+  "TMR",
+  "TMR-07",
+  "Slot active, running, G.W YES",
+  "Remove G.W, wait 10 s",
+  "Motor OFF; waits the testing gap"
+ ],
+ [
+  "TMR",
+  "TMR-10",
+  "Timer running",
+  "Raise level to 100%",
+  "Motor OFF"
+ ],
+ [
+  "TMR",
+  "TMR-10",
+  "Timer stopped at 100%, slot active",
+  "Lower level to 75%",
+  "Motor ON (see decision DEC-01)"
+ ],
+ [
+  "TMR",
+  "TMR-02",
+  "App connected",
+  "App: Save & Start Timer, then Stop Timer",
+  "Timer starts, then stops"
+ ],
+ [
+  "TMR",
+  "TMR-03",
+  "Example from report: slot 10:00-11:50, dry 3 min, gap 15 min",
+  "At 15:00 connect G.W",
+  "Nothing happens (outside slot)"
+ ],
+ [
+  "TWS",
+  "TWS-02",
+  "Twist ON 2 min, OFF 2 min, all day",
+  "Start Twist",
+  "Motor ON 2 min, OFF 2 min, repeats"
+ ],
+ [
+  "TWS",
+  "TWS-03",
+  "Twist start/stop time outside now",
+  "Start Twist",
+  "Motor stays OFF until the start time"
+ ],
+ [
+  "TWS",
+  "TWS-03",
+  "Twist start time = stop time",
+  "Start Twist",
+  "Runs all day"
+ ],
+ [
+  "TWS",
+  "TWS-04",
+  "Dry run ON (1 min), dry sensor in water, ON 3 min",
+  "Start Twist",
+  "Motor runs the full 3 min ON period"
+ ],
+ [
+  "TWS",
+  "TWS-05",
+  "Dry run ON (1 min), dry sensor dry, ON 3 min, OFF 2 min",
+  "Start Twist",
+  "ON 1 min then OFF for remaining 2 min, then 2 min OFF, next ON period tests again; Twist continues"
+ ],
+ [
+  "TWS",
+  "TWS-06",
+  "Dry run 2 min, ON duration 1 min, dry sensor dry",
+  "Start Twist",
+  "Check made at end of the ON period; Twist continues"
+ ],
+ [
+  "TWS",
+  "TWS-07",
+  "Twist running, G.W YES",
+  "Remove G.W, wait 10 s",
+  "Motor OFF and stays OFF"
+ ],
+ [
+  "TWS",
+  "TWS-07",
+  "Twist held by G.W loss",
+  "Reconnect G.W, wait 10 s",
+  "New ON period starts"
+ ],
+ [
+  "TWS",
+  "TWS-08",
+  "G.W probe not fitted",
+  "Run Twist",
+  "Normal ON/OFF cycle"
+ ],
+ [
+  "TWS",
+  "TWS-09",
+  "Twist running",
+  "Raise level to 100%",
+  "Motor OFF"
+ ],
+ [
+  "TWS",
+  "TWS-09",
+  "Twist stopped at 100%",
+  "Lower level to 75%, then 50%",
+  "Motor stays OFF"
+ ],
+ [
+  "TWS",
+  "TWS-09",
+  "Twist stopped at 100%",
+  "Lower level to 25%",
+  "Twist restarts with an ON period"
+ ],
+ [
+  "TWS",
+  "TWS-10",
+  "Twist settings set in app",
+  "Reboot, open app twist page and Menu > Twist",
+  "Same settings shown"
+ ],
+ [
+  "TWS",
+  "TWS-01",
+  "Twist running",
+  "App: Stop Twist",
+  "Twist stops, motor OFF"
+ ],
+ [
+  "TWS",
+  "TWS-11",
+  "PwrRestore ON, Twist ON 10 min, 4 min into the ON period",
+  "Power off for 1 min, then on",
+  "Twist continues the ON period with about 6 min left (up to 1 min extra)"
+ ],
+ [
+  "TWS",
+  "TWS-11",
+  "PwrRestore ON, Twist in its OFF period",
+  "Power off and on",
+  "Motor stays OFF for the rest of the OFF period, then ON"
+ ],
+ [
+  "TWS",
+  "TWS-11",
+  "PwrRestore ON, Twist running",
+  "Power off; power on after the twist stop time",
+  "Twist does not start (outside its time)"
+ ],
+ [
+  "SEMI",
+  "SEMI-02",
+  "Level 50%",
+  "Hold button 3 for 2 s",
+  "Semi-Auto, motor ON"
+ ],
+ [
+  "SEMI",
+  "SEMI-04",
+  "Dry run ON, dry sensor dry",
+  "Start Semi-Auto",
+  "Motor OFF after dry run time; Semi-Auto ends"
+ ],
+ [
+  "SEMI",
+  "SEMI-01",
+  "Semi-Auto running",
+  "Hold button 3 again",
+  "Semi-Auto off, motor OFF"
+ ],
+ [
+  "SEMI",
+  "SEMI-03",
+  "Semi-Auto running",
+  "Raise level to 100%, then lower to 25%",
+  "Motor OFF at 100% and stays OFF"
+ ],
+ [
+  "SEMI",
+  "SEMI-05",
+  "Semi-Auto running",
+  "Over-load (or low voltage) until it trips",
+  "Motor OFF; Semi-Auto ends and does not restart when the fault clears"
+ ],
+ [
+  "SEMI",
+  "SEMI-05",
+  "Max run 5 min",
+  "Run Semi-Auto 5 min",
+  "Motor OFF; Semi-Auto ends"
+ ],
+ [
+  "SEMI",
+  "SEMI-06",
+  "PwrRestore ON, Semi-Auto motor running",
+  "Power off and on",
+  "Semi-Auto runs again after 10 s"
+ ],
+ [
+  "SEMI",
+  "SEMI-06",
+  "PwrRestore ON, Semi-Auto stopped at tank full",
+  "Power off and on",
+  "Semi-Auto not resumed; motor OFF"
+ ],
+ [
+  "CD",
+  "CD-01",
+  "Saved countdown time 10 min",
+  "Short press button 4",
+  "Motor ON; countdown 10:00 shown"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Countdown 1 min",
+  "Wait 1 min",
+  "Motor OFF when time ends"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Countdown running (no mode before it)",
+  "Press button 4",
+  "Countdown stops, motor OFF"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Auto running, then countdown started",
+  "Press button 4 to stop the countdown early",
+  "Back in Auto; screen shows AUTO"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Auto switched off with button 2 (AUTO M:OFF), then countdown 1 min",
+  "Wait until the countdown ends",
+  "Screen shows AUTO M:OFF again"
+ ],
+ [
+  "CD",
+  "CD-08",
+  "App connected",
+  "Start countdown 5 min from the app",
+  "Device screen shows the time left counting down"
+ ],
+ [
+  "CD",
+  "CD-08",
+  "PwrRestore ON, countdown running",
+  "Power off and on",
+  "After the welcome screen, the countdown screen shows the time left"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Auto running at 75% (motor off)",
+  "Start countdown 1 min, wait until it ends",
+  "Motor OFF at the end; device back in Auto (screen AUTO)"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "Timer mode on",
+  "Start countdown 1 min, wait until it ends",
+  "Back in Timer mode"
+ ],
+ [
+  "CD",
+  "CD-02",
+  "No mode running",
+  "Start countdown 1 min, wait until it ends",
+  "Motor OFF; no mode running"
+ ],
+ [
+  "CD",
+  "CD-07",
+  "PwrRestore ON, Auto, then countdown 10 min started",
+  "After 4 min switch power off for 1 min, then on",
+  "Countdown continues with about 6 min left (up to 1 min extra); at the end back to Auto"
+ ],
+ [
+  "CD",
+  "CD-07",
+  "PwrRestore OFF, countdown running",
+  "Power off and on",
+  "Manual, motor OFF (countdown not resumed)"
+ ],
+ [
+  "CD",
+  "CD-04",
+  "Dashboard",
+  "Hold button 4, set 15 with Down/Up, Select",
+  "Countdown 15 min starts"
+ ],
+ [
+  "CD",
+  "CD-04",
+  "Countdown time set to 15",
+  "Reboot, then short press button 4",
+  "Countdown 15 min starts"
+ ],
+ [
+  "CD",
+  "CD-04",
+  "App connected",
+  "App: start countdown 20 min, stop it, then press button 4",
+  "Button starts 20 min"
+ ],
+ [
+  "CD",
+  "CD-05",
+  "Dry run ON, dry sensor dry",
+  "Start countdown 10 min",
+  "Motor OFF after dry run time; Countdown ends"
+ ],
+ [
+  "CD",
+  "CD-03",
+  "Auto waiting at 75%, countdown 10 min running",
+  "Raise level to 100%",
+  "Countdown ends; back to Auto (motor OFF because full)"
+ ],
+ [
+  "CD",
+  "CD-06",
+  "Countdown running",
+  "Over-load",
+  "Motor OFF; Countdown ends; previous mode"
+ ],
+ [
+  "CD",
+  "CD-06",
+  "Max run 5 min, countdown 10 min",
+  "Run countdown",
+  "Motor OFF after 5 min; Countdown ends; previous mode"
+ ],
+ [
+  "REF",
+  "REF-01",
+  "Auto waiting at 75%",
+  "Short press button 1",
+  "Refill, motor ON"
+ ],
+ [
+  "REF",
+  "REF-02",
+  "Refill running from Auto",
+  "Raise level to 100%",
+  "Motor OFF; back to Auto"
+ ],
+ [
+  "REF",
+  "REF-01",
+  "Level 100%",
+  "Short press button 1",
+  "Refill does not start"
+ ],
+ [
+  "REF",
+  "REF-04",
+  "Dry run ON, dry sensor dry",
+  "Start Refill",
+  "Refill ends after dry run time; previous mode"
+ ],
+ [
+  "REF",
+  "REF-00",
+  "Timer mode on, no slot active",
+  "Short press button 1",
+  "Screen shows Refill, motor ON; at 100% back to TIMER"
+ ],
+ [
+  "REF",
+  "REF-03",
+  "Refill running",
+  "Short press button 1",
+  "Refill stops; previous mode"
+ ],
+ [
+  "REF",
+  "REF-03",
+  "Max run 5 min",
+  "Run Refill 5 min",
+  "Motor OFF; Refill ends; previous mode"
+ ],
+ [
+  "REF",
+  "REF-05",
+  "Refill running from Auto",
+  "Low voltage for 5 s",
+  "Motor OFF; Refill ends; screen shows AUTO"
+ ],
+ [
+  "REF",
+  "REF-06",
+  "PwrRestore ON, Refill running from Auto",
+  "Power off and on",
+  "Screen shows AUTO; motor per DEC-11 (now: starts after 10 s unless full)"
+ ],
+ [
+  "REF",
+  "REF-06",
+  "PwrRestore ON, Refill running from Manual",
+  "Power off and on",
+  "Screen shows MANUAL, motor OFF"
+ ],
+ [
+  "PRT",
+  "PRT-01",
+  "Supply below low-voltage limit",
+  "Try to start any mode",
+  "Motor does not start; VOLTERR shown"
+ ],
+ [
+  "PRT",
+  "PRT-01",
+  "Supply above high-voltage limit",
+  "Try to start any mode",
+  "Motor does not start; VOLTERR shown"
+ ],
+ [
+  "PRT",
+  "PRT-01",
+  "Voltage fault active",
+  "Return voltage to normal",
+  "Fault clears after 10 s"
+ ],
+ [
+  "PRT",
+  "PRT-02",
+  "Over-load 25 A, motor with high start current",
+  "Start motor",
+  "No trip during the first 3 s"
+ ],
+ [
+  "PRT",
+  "PRT-02",
+  "Over-load set just below running current",
+  "Run motor",
+  "Motor OFF after 3 s; OVERLD shown"
+ ],
+ [
+  "PRT",
+  "PRT-03",
+  "Under-load set above running current",
+  "Run motor",
+  "Motor OFF after 3 s; UNDERLD shown"
+ ],
+ [
+  "PRT",
+  "PRT-04",
+  "Max run 5 min, testing gap 5 min, Auto at 25%",
+  "Let the motor run 5 min, then wait 5 min",
+  "Motor OFF after 5 min (red LED blinks); Auto may start again after the 5 min gap"
+ ],
+ [
+  "PRT",
+  "PRT-05",
+  "Low voltage switched off in app",
+  "Supply below the old limit",
+  "Motor runs"
+ ],
+ [
+  "PRT",
+  "PRT-06",
+  "Motor off, no load",
+  "Read current on page 2",
+  "0.0 A"
+ ],
+ [
+  "PRT",
+  "PRT-06",
+  "Meter shows 230 V, device shows other value",
+  "App: calibrate voltage to 230",
+  "Device shows 230 V; kept after reboot"
+ ],
+ [
+  "PWR",
+  "PWR-02",
+  "PwrRestore ON, Auto running",
+  "Power off and on",
+  "Auto; motor ON after 10 s"
+ ],
+ [
+  "PWR",
+  "PWR-02",
+  "PwrRestore ON, Auto switched off by button 2 (AUTO M:OFF)",
+  "Power off and on",
+  "Auto; motor ON after 10 s"
+ ],
+ [
+  "PWR",
+  "PWR-02",
+  "PwrRestore ON, Auto, level 100%",
+  "Power off and on",
+  "Auto; motor stays OFF"
+ ],
+ [
+  "PWR",
+  "PWR-03",
+  "PwrRestore ON, Manual running",
+  "Power off and on",
+  "Manual, motor OFF; long press button 1 starts it"
+ ],
+ [
+  "PWR",
+  "PWR-07",
+  "PwrRestore OFF, Auto running",
+  "Power off and on",
+  "Manual, motor OFF"
+ ],
+ [
+  "PWR",
+  "PWR-01",
+  "PwrRestore ON",
+  "Reboot; open Device Setup and app settings",
+  "Still ON in both"
+ ],
+ [
+  "PWR",
+  "PWR-04",
+  "PwrRestore ON, Timer, slot active, motor was OFF (dry run wait)",
+  "Power off and on",
+  "Timer; motor starts after 10 s"
+ ],
+ [
+  "PWR",
+  "PWR-04",
+  "PwrRestore ON, Timer, no slot active",
+  "Power off and on",
+  "Timer; motor OFF until the next slot"
+ ],
+ [
+  "PWR",
+  "PWR-05",
+  "PwrRestore ON, Twist in ON period",
+  "Power off and on",
+  "Twist continues the ON period with the time left"
+ ],
+ [
+  "PWR",
+  "PWR-06",
+  "PwrRestore ON, Countdown running with 8 min left",
+  "Power off and on",
+  "Countdown continues with about 8 min left"
+ ],
+ [
+  "BUZ",
+  "BUZ-01",
+  "Pump-on buzzer on",
+  "Start motor",
+  "Beeps once per second while running"
+ ],
+ [
+  "BUZ",
+  "BUZ-02",
+  "Tank-full buzzer on",
+  "Fill tank",
+  "Buzzer 30 s"
+ ],
+ [
+  "BUZ",
+  "BUZ-03",
+  "Tank-empty buzzer on",
+  "Lower level to 0%",
+  "Buzzer 15 s"
+ ],
+ [
+  "BUZ",
+  "BUZ-04",
+  "All buzzers off",
+  "Run motor, fill tank, empty tank",
+  "No buzzer"
+ ],
+ [
+  "BUZ",
+  "BUZ-04",
+  "App settings",
+  "Switch only tank-full buzzer on, apply, reload",
+  "Only tank-full shown on; only it sounds"
+ ],
+ [
+  "DSP",
+  "DSP-01",
+  "Auto running at 50%",
+  "Look at line 1",
+  "AUTO   M:ON  50%"
+ ],
+ [
+  "DSP",
+  "DSP-02",
+  "G.W connected",
+  "Look at line 2",
+  "G.W:YES and time"
+ ],
+ [
+  "DSP",
+  "DSP-02",
+  "Dry sensor dry",
+  "Look at line 2",
+  "DRY shown"
+ ],
+ [
+  "DSP",
+  "DSP-02",
+  "Level 100%",
+  "Look at line 2",
+  "TANK FULL and time"
+ ],
+ [
+  "DSP",
+  "DSP-03",
+  "Normal",
+  "Wait for page 2",
+  "Voltage, current and day"
+ ],
+ [
+  "FAC",
+  "FAC-01",
+  "Settings changed",
+  "Menu > Reset To Default > YES",
+  "All values as listed in FAC-01"
+ ],
+ [
+  "FAC",
+  "FAC-01",
+  "App connected, settings changed",
+  "App: Factory Reset",
+  "App shows the default values"
+ ],
+ [
+  "APP",
+  "APP-01",
+  "Max run changed on the device menu",
+  "Open app settings page",
+  "App shows the new value"
+ ],
+ [
+  "APP",
+  "APP-02",
+  "Device disconnected from ESP",
+  "Open app settings page",
+  "Message: device not responding - last known values"
+ ],
+ [
+  "APP",
+  "APP-03",
+  "App settings",
+  "Change high voltage, Apply",
+  "Message: saved on device; page shows the new value"
+ ],
+ [
+  "APP",
+  "APP-04",
+  "App dashboard open",
+  "Start motor from device button",
+  "App shows motor ON within about 3 s"
+ ],
+ [
+  "APP",
+  "APP-05",
+  "App timer page",
+  "Enable slot 2, Save & Start",
+  "Timer starts with slot 2"
+ ],
+ [
+  "APP",
+  "APP-06",
+  "App twist page",
+  "Set ON 3 / OFF 2 min, Save & Start; reload",
+  "Twist runs; page shows 3/2 min and running"
+ ],
+ [
+  "APP",
+  "APP-07",
+  "Countdown started from button 4",
+  "Open app countdown page",
+  "Page shows remaining time counting down"
+ ],
+ [
+  "APP",
+  "APP-08",
+  "App settings page",
+  "Check buzzer switches and power restore",
+  "3 separate buzzer switches; power restore ON/OFF"
+ ]
+]

@@ -1,0 +1,625 @@
+{
+  "product": "Helonix Water Tank Controller WT1.1",
+  "version": "1.1",
+  "date": "26-09-2026",
+  "firmware": "STM32 branch fix/testing-report-24-09-26; ESP-01 web app branch fix/device-sync",
+  "terms": [
+    [
+      "Tank level",
+      "Read from 4 probes (25%, 50%, 75%, 100%). A level must be stable for 5 s before it is accepted. If a wireless tank transmitter is paired, its level is used and the last received value is kept during short signal gaps."
+    ],
+    [
+      "Tank full",
+      "Level reaches 100%."
+    ],
+    [
+      "Dry run sensor",
+      "Sensor that shows whether water is actually flowing from the source."
+    ],
+    [
+      "Dry run time",
+      "How long the motor runs as a test before the dry run sensor is checked (setting \"Dry Run\", default 2 min)."
+    ],
+    [
+      "Testing gap",
+      "How long the motor waits after a failed dry run test before trying again (default 30 min)."
+    ],
+    [
+      "Retry count",
+      "How many failed dry run tests are allowed before the motor waits for the next trigger (default 5; 0 = unlimited)."
+    ],
+    [
+      "Ground water (G.W)",
+      "Sensor that shows whether ground-water supply is present. A change is accepted only after it has lasted 10 s."
+    ],
+    [
+      "On key / Off key",
+      "An event that is allowed to start / stop the motor in a mode."
+    ],
+    [
+      "Start delay",
+      "After power-up the motor never starts in the first 10 s."
+    ]
+  ],
+  "modules": [
+    {
+      "id": "GEN",
+      "name": "General behaviour",
+      "rules": [
+        [
+          "GEN-01",
+          "Tank level comes from the 4 level probes; a new level is accepted only after it is stable for 5 s."
+        ],
+        [
+          "GEN-02",
+          "If a wireless tank transmitter is paired, its level is used; during a signal gap the last received level is kept."
+        ],
+        [
+          "GEN-03",
+          "After power-up the motor never starts during the first 10 s."
+        ],
+        [
+          "GEN-04",
+          "A ground water change (YES/NO) is accepted only after it has lasted 10 s."
+        ],
+        [
+          "GEN-05",
+          "All settings (limits, timer slots, twist, buzzer, countdown time, power restore, last mode) are kept through power cuts and firmware updates."
+        ],
+        [
+          "GEN-06",
+          "The clock keeps running during a power cut on its backup battery, and is not changed by firmware updates."
+        ],
+        [
+          "GEN-07",
+          "Relay 2 gives a 2 s pulse when the motor starts and relay 3 a 2 s pulse when it stops (for an external starter panel)."
+        ]
+      ]
+    },
+    {
+      "id": "BTN",
+      "name": "Device buttons",
+      "note": "Buttons from left: 1 = Refill/Reset (red), 2 = Select \"P\" (yellow), 3 = Up, 4 = Down. Long press = hold 2 s.",
+      "rules": [
+        [
+          "BTN-01",
+          "Button 1 short press: Refill start / stop. Long press: Manual on / off."
+        ],
+        [
+          "BTN-02",
+          "Button 2 short press: Auto on / Auto off (motor off). Long press: open the menu."
+        ],
+        [
+          "BTN-03",
+          "Button 3 short press: Timer mode on / off. Long press: Semi-Auto on / off."
+        ],
+        [
+          "BTN-04",
+          "Button 4 short press: Countdown start (saved time) / stop. Long press: edit the countdown time."
+        ],
+        [
+          "BTN-05",
+          "Twist mode is started and stopped from Menu > Twist Mode or from the app."
+        ],
+        [
+          "BTN-06",
+          "Quick taps are always registered; in menus and edit screens holding Up/Down repeats the step and speeds up after 3 s. On the dashboard holding a button never acts as repeated short presses."
+        ]
+      ]
+    },
+    {
+      "id": "AUTO",
+      "name": "Auto mode",
+      "rules": [
+        [
+          "AUTO-01",
+          "Auto is started with button 2 or from the app."
+        ],
+        [
+          "AUTO-02",
+          "When no mode is running and the level goes below 50% (25%), the device starts Auto by itself - unless the user switched Auto or Manual off with its button."
+        ],
+        [
+          "AUTO-03",
+          "Motor ON when the level goes below 50%. The probes read 0/25/50/75/100%, so the motor starts at 25% (see DEC-08)."
+        ],
+        [
+          "AUTO-05",
+          "Motor OFF when the tank is full (100%)."
+        ],
+        [
+          "AUTO-06",
+          "Ground water detected (NO to YES): motor ON if the level is at or below 75%."
+        ],
+        [
+          "AUTO-07",
+          "Ground water lost (YES to NO) while running: motor OFF, then waits the testing gap (see DEC-09)."
+        ],
+        [
+          "AUTO-08",
+          "Dry run enabled: after the dry run time the sensor is checked; water found - motor keeps running until the tank is full."
+        ],
+        [
+          "AUTO-09",
+          "Dry run enabled, no water: motor OFF, waits the testing gap, then tries again."
+        ],
+        [
+          "AUTO-10",
+          "After the retry count is used up, the motor waits for the next on key (ground water detected, Refill button, or the user)."
+        ],
+        [
+          "AUTO-11",
+          "Button 2 while Auto is running: motor OFF, screen shows \"AUTO M:OFF\". This still counts as Auto for power restore."
+        ],
+        [
+          "AUTO-12",
+          "Voltage, current and max run protections stop the motor (see Protections)."
+        ],
+        [
+          "AUTO-13",
+          "Other on keys: Refill button (the tank is filled, then Auto continues), the testing gap ending after a dry run failure, and power restore (see PWR-02)."
+        ]
+      ]
+    },
+    {
+      "id": "MAN",
+      "name": "Manual mode",
+      "rules": [
+        [
+          "MAN-01",
+          "Manual is started with a long press of button 1 or from the app."
+        ],
+        [
+          "MAN-02",
+          "In Manual only the user (button or app) can switch the motor ON."
+        ],
+        [
+          "MAN-03",
+          "Motor OFF by: user, voltage fault, over/under current, max run time, power off."
+        ],
+        [
+          "MAN-04",
+          "Tank full does NOT stop the motor in Manual; the tank-full buzzer sounds for 30 s if enabled."
+        ],
+        [
+          "MAN-05",
+          "Dry run and ground water are not used in Manual."
+        ],
+        [
+          "MAN-06",
+          "When a protection (voltage, current, max run) trips, the motor stops and the device stays in Manual - screen shows MANUAL with the motor off. Only the user's press starts it again; Auto does not start by itself."
+        ]
+      ]
+    },
+    {
+      "id": "TMR",
+      "name": "Timer mode",
+      "rules": [
+        [
+          "TMR-01",
+          "Up to 5 time slots, each with an ON time, OFF time and its own days of the week; a slot can be switched off."
+        ],
+        [
+          "TMR-02",
+          "Timer is started with button 3 or from the app (Save & Start Timer). The Refill button also starts the motor (see Refill)."
+        ],
+        [
+          "TMR-03",
+          "Motor ON when the clock enters an active slot (right time and right day)."
+        ],
+        [
+          "TMR-04",
+          "Motor OFF at the slot's OFF time."
+        ],
+        [
+          "TMR-05",
+          "Outside every slot the motor stays OFF; ground water and dry run are ignored."
+        ],
+        [
+          "TMR-06",
+          "Inside a slot, ground water detected: motor ON."
+        ],
+        [
+          "TMR-07",
+          "Inside a slot, ground water lost: motor OFF, then waits the testing gap (see DEC-09)."
+        ],
+        [
+          "TMR-08",
+          "Dry run enabled: same test / testing gap / retry count as Auto."
+        ],
+        [
+          "TMR-09",
+          "While running, if the dry run sensor shows no water, the motor stops and waits the testing gap."
+        ],
+        [
+          "TMR-10",
+          "Tank full: motor OFF; it starts again as soon as the level drops below 100% while the slot is active (see decision DEC-01)."
+        ],
+        [
+          "TMR-11",
+          "A slot switched off in the app or on the device stays off after saving and after a reboot."
+        ]
+      ]
+    },
+    {
+      "id": "TWS",
+      "name": "Twist mode",
+      "rules": [
+        [
+          "TWS-01",
+          "Twist is started / stopped from Menu > Twist Mode or from the app. Settings: ON duration, OFF duration (minutes), optional start and stop time."
+        ],
+        [
+          "TWS-02",
+          "ON period: motor ON for the ON duration. OFF period: motor OFF for the OFF duration. Then repeats."
+        ],
+        [
+          "TWS-03",
+          "Twist runs only between its start and stop time; if both are equal it runs all day."
+        ],
+        [
+          "TWS-04",
+          "Dry run enabled: tested at the start of every ON period; water found - motor runs the rest of the ON period."
+        ],
+        [
+          "TWS-05",
+          "Dry run enabled, no water: motor OFF for the rest of that ON period; the OFF period follows and the next ON period tests again. Twist does not stop."
+        ],
+        [
+          "TWS-06",
+          "If the ON duration is shorter than the dry run time, the check is made at the end of the ON period."
+        ],
+        [
+          "TWS-07",
+          "Ground water lost (YES to NO): motor OFF until ground water returns, then a new ON period starts."
+        ],
+        [
+          "TWS-08",
+          "If the ground water probe is not fitted (always NO), Twist ignores it."
+        ],
+        [
+          "TWS-09",
+          "Tank full: motor OFF; Twist restarts (with an ON period) only when the level is at or below 25%."
+        ],
+        [
+          "TWS-10",
+          "Twist settings are saved and kept after a reboot."
+        ],
+        [
+          "TWS-11",
+          "Power restore ON: if twist was running at power loss, it continues the same ON or OFF period with the time it had left (saved every minute, so up to 1 min may be repeated) - only inside its start/stop time."
+        ]
+      ]
+    },
+    {
+      "id": "SEMI",
+      "name": "Semi-Auto mode",
+      "rules": [
+        [
+          "SEMI-01",
+          "Semi-Auto is started with a long press of button 3 or from the app (only the user has the on key); it is a single run to fill the tank."
+        ],
+        [
+          "SEMI-02",
+          "Motor ON when Semi-Auto starts."
+        ],
+        [
+          "SEMI-03",
+          "Off keys: button 3 long press again, tank full (100%). The motor does not restart by itself."
+        ],
+        [
+          "SEMI-04",
+          "Dry run enabled, no water after the dry run time: motor OFF and Semi-Auto ends."
+        ],
+        [
+          "SEMI-05",
+          "Voltage / current faults and max run time stop the motor and end Semi-Auto."
+        ],
+        [
+          "SEMI-06",
+          "Power restore ON: if the Semi-Auto motor was running at power loss, Semi-Auto runs again when power returns."
+        ]
+      ]
+    },
+    {
+      "id": "CD",
+      "name": "Countdown mode",
+      "rules": [
+        [
+          "CD-01",
+          "Countdown runs the motor for a set time (1-180 min, default 10 min); started with button 4 or from the app."
+        ],
+        [
+          "CD-02",
+          "Motor OFF when the time ends or the user stops it (button 4 or app). However the countdown ends, the mode that was running before it (e.g. Auto, Timer, Twist, Manual, or Auto switched off with button 2) continues and is shown on the screen."
+        ],
+        [
+          "CD-08",
+          "While a countdown runs, the screen always shows the time left - also when it was started from the app or resumed after a power cut."
+        ],
+        [
+          "CD-03",
+          "Tank full (100%): the countdown ends and the previous mode continues."
+        ],
+        [
+          "CD-04",
+          "The time is set with a long press of button 4 (Down +1, Up -1, Select). It is saved and used by every later button 4 press; a time set in the app is also saved as the button time."
+        ],
+        [
+          "CD-05",
+          "Dry run enabled, no water after the dry run time: Countdown ends."
+        ],
+        [
+          "CD-06",
+          "Voltage and current faults and max run time end the countdown; the previous mode continues."
+        ],
+        [
+          "CD-07",
+          "Power restore ON: a countdown running at power loss continues with the time it had left (saved every minute, so up to 1 min may be repeated). When it ends, the mode that was running before it continues - this is also kept in memory."
+        ]
+      ]
+    },
+    {
+      "id": "REF",
+      "name": "Refill",
+      "rules": [
+        [
+          "REF-00",
+          "Refill is not a mode: it is a motor start button usable in any mode. The screen shows \"Refill\" while it runs; afterwards the mode from before continues."
+        ],
+        [
+          "REF-01",
+          "Refill is started with a short press of button 1 or from the app; it is not started if the tank is already full."
+        ],
+        [
+          "REF-02",
+          "Tank full: Refill ends and the previous mode (e.g. Auto) continues."
+        ],
+        [
+          "REF-03",
+          "Refill is stopped by the user (button 1) and by max run time; the previous mode continues."
+        ],
+        [
+          "REF-04",
+          "Dry run enabled, no water: Refill ends and the previous mode continues."
+        ],
+        [
+          "REF-05",
+          "Voltage / current fault: Refill ends and the previous mode continues."
+        ],
+        [
+          "REF-06",
+          "Power cut during Refill: after power returns the device is in the mode from before Refill; that mode's power restore rule applies (see DEC-11)."
+        ]
+      ]
+    },
+    {
+      "id": "PRT",
+      "name": "Protections",
+      "rules": [
+        [
+          "PRT-01",
+          "Low / high voltage (default 180 V / 280 V): voltage outside the limits for 3 s stops the motor; it is checked all the time, so a bad supply also prevents a start. Recovers after 10 s back in range (Manual stays off until the user starts it)."
+        ],
+        [
+          "PRT-02",
+          "Over-load current (default 25 A): above the limit for 3 s stops the motor; the first 3 s after a start are ignored. Auto, Timer and Twist may restart after the testing gap."
+        ],
+        [
+          "PRT-03",
+          "Under-load current (default off): below the limit for 3 s stops the motor; Auto, Timer and Twist may restart after the testing gap."
+        ],
+        [
+          "PRT-04",
+          "Max run time (default 150 min) applies in every mode: after running this long the motor stops. Refill and Countdown end (previous mode continues), Semi-Auto ends, Manual stays shown with the motor off; Auto, Timer and Twist may run again after the testing gap."
+        ],
+        [
+          "PRT-05",
+          "A limit of 0 (or switched off in the app) disables that protection."
+        ],
+        [
+          "PRT-06",
+          "Voltage and current can be calibrated from the app against a meter reading; with no load the current shows 0.0 A."
+        ]
+      ]
+    },
+    {
+      "id": "PWR",
+      "name": "Power restore",
+      "rules": [
+        [
+          "PWR-01",
+          "Device Setup > PwrRestore has two values: ON and OFF (factory default OFF)."
+        ],
+        [
+          "PWR-02",
+          "ON, last mode Auto (motor ON, or switched off with button 2): after power returns - Auto, motor ON after 10 s; stays OFF if the tank is full."
+        ],
+        [
+          "PWR-03",
+          "ON, last mode Manual: Manual, motor OFF (one long press of button 1 starts it)."
+        ],
+        [
+          "PWR-04",
+          "ON, last mode Timer: Timer; the motor starts if the clock is inside an active slot."
+        ],
+        [
+          "PWR-05",
+          "ON, last mode Twist: continues the same period with the time it had left (see TWS-11)."
+        ],
+        [
+          "PWR-06",
+          "ON, last mode Countdown: continues with the time it had left (see CD-07). Semi-Auto: runs again if its motor was running (SEMI-06). Refill: see REF-06."
+        ],
+        [
+          "PWR-07",
+          "OFF: after power returns always Manual, motor OFF."
+        ]
+      ]
+    },
+    {
+      "id": "BUZ",
+      "name": "Buzzer",
+      "rules": [
+        [
+          "BUZ-01",
+          "Pump on: beeps once per second while the motor runs (if enabled)."
+        ],
+        [
+          "BUZ-02",
+          "Tank full: buzzer for 30 s (if enabled)."
+        ],
+        [
+          "BUZ-03",
+          "Tank empty (level reaches 0%): buzzer for 15 s (if enabled)."
+        ],
+        [
+          "BUZ-04",
+          "Each buzzer can be switched on/off separately; all are off by default."
+        ]
+      ]
+    },
+    {
+      "id": "DSP",
+      "name": "Display",
+      "rules": [
+        [
+          "DSP-01",
+          "Line 1: mode, motor state and level, e.g. \"AUTO   M:ON  50%\"."
+        ],
+        [
+          "DSP-02",
+          "Line 2: G.W:YES/NO, \"DRY\" when the dry run sensor shows no water, and the time; \"TANK FULL\" when full."
+        ],
+        [
+          "DSP-03",
+          "Page 2: voltage, current and day, or the active fault (voltage / overload / underload error)."
+        ]
+      ]
+    },
+    {
+      "id": "FAC",
+      "name": "Factory reset",
+      "rules": [
+        [
+          "FAC-01",
+          "Factory reset (menu or app) sets: dry run disabled (2 min), testing gap 30 min, max run 150 min, retry count 5, low/high voltage 180/280 V, over-load 25 A, under-load disabled, power restore OFF, buzzer all off, countdown 10 min, timer slots and twist cleared."
+        ]
+      ]
+    },
+    {
+      "id": "APP",
+      "name": "Web app (ESP-01)",
+      "rules": [
+        [
+          "APP-01",
+          "Every app page (settings, timer, twist, countdown) shows the values currently stored on the device, not app defaults."
+        ],
+        [
+          "APP-02",
+          "If the device does not answer, the page says so and shows the last known values."
+        ],
+        [
+          "APP-03",
+          "Apply Settings saves on the device and the page reloads the values the device confirmed."
+        ],
+        [
+          "APP-04",
+          "Status (motor, level, mode) updates within about 3 s."
+        ],
+        [
+          "APP-05",
+          "Timer page sends all 5 slots; has Save & Start and Stop Timer."
+        ],
+        [
+          "APP-06",
+          "Twist page shows saved settings and running state; has Save & Start and Stop Twist; durations in minutes."
+        ],
+        [
+          "APP-07",
+          "Countdown page shows a countdown that is already running on the device."
+        ],
+        [
+          "APP-08",
+          "Settings page has separate buzzer switches (pump on, tank full, tank empty), power restore ON/OFF and factory reset."
+        ]
+      ]
+    }
+  ],
+  "decisions": [
+    [
+      "DEC-01",
+      "Timer after tank full",
+      "Now: motor restarts as soon as the level drops below 100% while the slot is active. Auto and Twist wait for 25%.",
+      "(a) Keep as now   (b) Restart only at 25% or below"
+    ],
+    [
+      "DEC-03",
+      "Automatic Auto when idle",
+      "Now: when no mode is running and the level goes below 50% (25%), the device starts Auto by itself (not when Auto or Manual was switched off with its button).",
+      "(a) Keep as now   (b) Never start Auto by itself"
+    ],
+    [
+      "DEC-04",
+      "Retry count used up",
+      "Now: after all dry run retries fail, the motor waits for ground water or the user.",
+      "(a) Keep as now   (b) Retry again after a longer gap - give time"
+    ],
+    [
+      "DEC-05",
+      "Current fault recovery",
+      "Now: after an over/under-current trip the motor may restart after the testing gap (default 30 min).",
+      "(a) Keep as now   (b) Different time - give time   (c) Only the user restarts"
+    ],
+    [
+      "DEC-06",
+      "Starter relays",
+      "Now: relay 2 = 2 s pulse at motor start, relay 3 = 2 s pulse at motor stop.",
+      "(a) Correct   (b) Different wiring - describe"
+    ],
+    [
+      "DEC-07",
+      "Twist days",
+      "Now: the app lets you pick days for Twist but the device runs Twist every day.",
+      "(a) Every day is fine   (b) Add day selection"
+    ],
+    [
+      "DEC-08",
+      "Auto start level",
+      "The Key Story says the motor starts when the level goes below 50%. The probes read 0/25/50/75/100%, so this is 25%. Now: the motor starts at 25%.",
+      "(a) 25% (below 50%)   (b) 50%   (c) 50% the first time, 25% after the tank was filled"
+    ],
+    [
+      "DEC-09",
+      "Ground water lost",
+      "The first testing report made ground water lost an off key in Auto and Timer; the Key Story does not list it. Now: the motor stops 10 s after ground water is lost and tries again after the testing gap.",
+      "(a) Keep: ground water lost stops the motor   (b) Remove: ground water only starts the motor"
+    ],
+    [
+      "DEC-10",
+      "Resume after a power cut",
+      "Semi-Auto, Countdown and Twist continue after a power cut. Now: only when Power Restore = ON; with OFF the device starts in Manual with the motor off.",
+      "(a) Only with Power Restore ON   (b) Always"
+    ],
+    [
+      "DEC-11",
+      "Refill + power cut, previous mode Auto, Power Restore ON",
+      "Refill rule: motor off after power restore. Auto rule: motor starts again. Now: the Auto rule applies (motor starts after 10 s unless the tank is full).",
+      "(a) Motor stays OFF until Auto's next on key   (b) Auto rule: motor starts"
+    ]
+  ],
+  "history": [
+    [
+      "1.0",
+      "26-09-2026",
+      "First issue for client approval. Includes the fixes from testing report 24-09-26.",
+      "Development"
+    ],
+    [
+      "1.1",
+      "26-09-2026",
+      "Updated to the client's \"Key Story\" (on/off keys per mode): Auto starts below 50% (25%); Refill is not a mode and returns to the previous mode (also after a fault or power cut); Manual stays shown after a protection trip; Semi-Auto, Countdown and Twist continue after a power cut; Countdown ends at tank full and at max run and returns to the previous mode; Timer starts after a power cut inside an active slot. New open points DEC-08 to DEC-11.",
+      "Development"
+    ]
+  ]
+}
