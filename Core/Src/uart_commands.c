@@ -128,7 +128,7 @@ static void send_settings(void)
 {
     char buf[160];
     snprintf(buf, sizeof(buf),
-        "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
+        "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;DE=%u;"
         "BZ=%u;BF=%u;BE=%u;CD=%u#",
         (unsigned)(ModelHandle_GetGapTime() / 60),
         (unsigned)(ModelHandle_GetDryRunRetryGap() / 60),
@@ -138,7 +138,6 @@ static void send_settings(void)
         (unsigned)ModelHandle_GetOverVolt(),
         (int)ModelHandle_GetOverloadLimit(),
         (int)ModelHandle_GetUnderloadLimit(),
-        (unsigned)ModelHandle_GetPowerRestoreMode(),
         ModelHandle_GetDryRunEnable() ? 1u : 0u,
         (unsigned)ModelHandle_GetBuzzerPumpOnSound(),
         (unsigned)ModelHandle_GetBuzzerTankFullSound(),

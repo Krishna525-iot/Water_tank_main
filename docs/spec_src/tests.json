@@ -63,6 +63,13 @@
   "Relay 2 closes 2 s at start; relay 3 closes 2 s at stop"
  ],
  [
+  "GEN",
+  "GEN-03",
+  "Auto, level 25%",
+  "Switch power off and on",
+  "Motor does not start before 10 s; starts after 10 s"
+ ],
+ [
   "BTN",
   "BTN-01",
   "Dashboard, level 50%",
@@ -141,13 +148,6 @@
  ],
  [
   "AUTO",
-  "AUTO-03",
-  "No mode, level 75%",
-  "Press button 2",
-  "Auto, motor OFF (waits)"
- ],
- [
-  "AUTO",
   "AUTO-05",
   "Auto running",
   "Raise level to 100%",
@@ -190,20 +190,6 @@
  ],
  [
   "AUTO",
-  "AUTO-07",
-  "Auto running, G.W YES",
-  "Remove G.W, wait 10 s",
-  "Motor OFF; restarts after the testing gap or when G.W returns"
- ],
- [
-  "AUTO",
-  "AUTO-07",
-  "Auto stopped by G.W loss",
-  "Reconnect G.W before the testing gap ends",
-  "Motor ON after 10 s"
- ],
- [
-  "AUTO",
   "AUTO-06",
   "G.W probe not fitted",
   "Run Auto normally",
@@ -239,22 +225,15 @@
  ],
  [
   "AUTO",
-  "AUTO-03",
-  "Example 1 from report: dry run 3 min, gap 15 min, 10:00 start, no water",
-  "At 10:05 connect G.W, keep dry sensor dry",
-  "10:03 OFF; 10:05:10 ON; 10:08 OFF; next try 10:23"
- ],
- [
-  "AUTO",
-  "AUTO-07",
-  "Example 2 from report: as above",
-  "At 10:05 connect G.W, at 10:06 remove it",
-  "10:05:10 ON; 10:06:10 OFF; next try 10:21"
+  "AUTO-13",
+  "Auto waiting at 75%",
+  "Short press button 1 (Refill)",
+  "Motor ON until full, then back to Auto"
  ],
  [
   "AUTO",
   "AUTO-01",
-  "No mode, level 25%",
+  "No mode, level 50%",
   "Press button 2",
   "Auto, motor ON"
  ],
@@ -263,42 +242,42 @@
   "AUTO-03",
   "Auto waiting at 75%",
   "Lower level to 50%",
-  "Motor stays OFF"
- ],
- [
-  "AUTO",
-  "AUTO-03",
-  "Auto waiting at 50%",
-  "Lower level to 25%",
   "Motor ON"
  ],
  [
   "AUTO",
+  "AUTO-03",
+  "Auto stopped at 100%",
+  "Lower level to 75%, then to 50%",
+  "OFF at 75%; ON at 50%"
+ ],
+ [
+  "AUTO",
   "AUTO-02",
-  "No mode active, level 50%",
-  "Lower level to 25%, wait",
+  "No mode active, level 75%",
+  "Lower level to 50%, wait",
   "Device starts Auto by itself, motor ON"
  ],
  [
   "AUTO",
   "AUTO-02",
-  "Auto switched off by button 2 (AUTO M:OFF), level 50%",
-  "Lower level to 25%",
+  "Auto switched off by button 2 (AUTO M:OFF), level 75%",
+  "Lower level to 50%",
   "Auto does NOT start by itself"
  ],
  [
   "AUTO",
   "AUTO-02",
-  "Manual switched off by button 1 (MANUAL shown), level 50%",
-  "Lower level to 25%",
+  "Manual switched off by button 1 (MANUAL shown), level 75%",
+  "Lower level to 50%",
   "Auto does NOT start by itself; screen still MANUAL"
  ],
  [
   "AUTO",
-  "AUTO-13",
-  "Auto waiting at 75%",
-  "Short press button 1 (Refill)",
-  "Motor ON until full, then back to Auto"
+  "AUTO-06",
+  "Auto running, G.W YES",
+  "Remove G.W, wait 30 s",
+  "Motor keeps running (ground water lost is not an off key)"
  ],
  [
   "MAN",
@@ -442,13 +421,6 @@
  ],
  [
   "TMR",
-  "TMR-07",
-  "Slot active, running, G.W YES",
-  "Remove G.W, wait 10 s",
-  "Motor OFF; waits the testing gap"
- ],
- [
-  "TMR",
   "TMR-10",
   "Timer running",
   "Raise level to 100%",
@@ -474,6 +446,13 @@
   "Example from report: slot 10:00-11:50, dry 3 min, gap 15 min",
   "At 15:00 connect G.W",
   "Nothing happens (outside slot)"
+ ],
+ [
+  "TMR",
+  "TMR-06",
+  "Slot active, running, G.W YES",
+  "Remove G.W, wait 30 s",
+  "Motor keeps running"
  ],
  [
   "TWS",
@@ -519,27 +498,6 @@
  ],
  [
   "TWS",
-  "TWS-07",
-  "Twist running, G.W YES",
-  "Remove G.W, wait 10 s",
-  "Motor OFF and stays OFF"
- ],
- [
-  "TWS",
-  "TWS-07",
-  "Twist held by G.W loss",
-  "Reconnect G.W, wait 10 s",
-  "New ON period starts"
- ],
- [
-  "TWS",
-  "TWS-08",
-  "G.W probe not fitted",
-  "Run Twist",
-  "Normal ON/OFF cycle"
- ],
- [
-  "TWS",
   "TWS-09",
   "Twist running",
   "Raise level to 100%",
@@ -575,24 +533,31 @@
  ],
  [
   "TWS",
+  "TWS-08",
+  "Twist running",
+  "Connect and remove G.W",
+  "No effect on the twist cycle"
+ ],
+ [
+  "TWS",
   "TWS-11",
-  "PwrRestore ON, Twist ON 10 min, 4 min into the ON period",
+  "Twist ON 10 min, 4 min into the ON period, stop time later",
   "Power off for 1 min, then on",
   "Twist continues the ON period with about 6 min left (up to 1 min extra)"
  ],
  [
   "TWS",
   "TWS-11",
-  "PwrRestore ON, Twist in its OFF period",
+  "Twist in its OFF period",
   "Power off and on",
   "Motor stays OFF for the rest of the OFF period, then ON"
  ],
  [
   "TWS",
   "TWS-11",
-  "PwrRestore ON, Twist running",
+  "Twist running",
   "Power off; power on after the twist stop time",
-  "Twist does not start (outside its time)"
+  "Motor stays off"
  ],
  [
   "SEMI",
@@ -639,14 +604,14 @@
  [
   "SEMI",
   "SEMI-06",
-  "PwrRestore ON, Semi-Auto motor running",
+  "Semi-Auto motor running",
   "Power off and on",
-  "Semi-Auto runs again after 10 s"
+  "Semi-Auto runs again after 10 s until tank full"
  ],
  [
   "SEMI",
   "SEMI-06",
-  "PwrRestore ON, Semi-Auto stopped at tank full",
+  "Semi-Auto stopped at tank full",
   "Power off and on",
   "Semi-Auto not resumed; motor OFF"
  ],
@@ -695,7 +660,7 @@
  [
   "CD",
   "CD-08",
-  "PwrRestore ON, countdown running",
+  "countdown running",
   "Power off and on",
   "After the welcome screen, the countdown screen shows the time left"
  ],
@@ -719,20 +684,6 @@
   "No mode running",
   "Start countdown 1 min, wait until it ends",
   "Motor OFF; no mode running"
- ],
- [
-  "CD",
-  "CD-07",
-  "PwrRestore ON, Auto, then countdown 10 min started",
-  "After 4 min switch power off for 1 min, then on",
-  "Countdown continues with about 6 min left (up to 1 min extra); at the end back to Auto"
- ],
- [
-  "CD",
-  "CD-07",
-  "PwrRestore OFF, countdown running",
-  "Power off and on",
-  "Manual, motor OFF (countdown not resumed)"
  ],
  [
   "CD",
@@ -782,6 +733,13 @@
   "Max run 5 min, countdown 10 min",
   "Run countdown",
   "Motor OFF after 5 min; Countdown ends; previous mode"
+ ],
+ [
+  "CD",
+  "CD-07",
+  "Auto, then countdown 10 min started",
+  "After 4 min switch power off for 1 min, then on",
+  "Motor ON with about 6 min left (up to 1 min extra); at the end back to Auto"
  ],
  [
   "REF",
@@ -842,14 +800,14 @@
  [
   "REF",
   "REF-06",
-  "PwrRestore ON, Refill running from Auto",
+  "Refill running from Auto",
   "Power off and on",
-  "Screen shows AUTO; motor per DEC-11 (now: starts after 10 s unless full)"
+  "Screen shows AUTO; motor starts after 10 s (unless full)"
  ],
  [
   "REF",
   "REF-06",
-  "PwrRestore ON, Refill running from Manual",
+  "Refill running from Manual",
   "Power off and on",
   "Screen shows MANUAL, motor OFF"
  ],
@@ -925,73 +883,66 @@
  ],
  [
   "PWR",
+  "PWR-01",
+  "Device Setup menu",
+  "Scroll through Device Setup",
+  "There is no Power Restore item"
+ ],
+ [
+  "PWR",
   "PWR-02",
-  "PwrRestore ON, Auto running",
+  "Auto running",
   "Power off and on",
   "Auto; motor ON after 10 s"
  ],
  [
   "PWR",
   "PWR-02",
-  "PwrRestore ON, Auto switched off by button 2 (AUTO M:OFF)",
+  "Auto switched off by button 2 (AUTO M:OFF)",
   "Power off and on",
   "Auto; motor ON after 10 s"
  ],
  [
   "PWR",
   "PWR-02",
-  "PwrRestore ON, Auto, level 100%",
+  "Auto, level 100%",
   "Power off and on",
   "Auto; motor stays OFF"
  ],
  [
   "PWR",
   "PWR-03",
-  "PwrRestore ON, Manual running",
+  "Manual running",
   "Power off and on",
   "Manual, motor OFF; long press button 1 starts it"
  ],
  [
   "PWR",
-  "PWR-07",
-  "PwrRestore OFF, Auto running",
-  "Power off and on",
-  "Manual, motor OFF"
- ],
- [
-  "PWR",
-  "PWR-01",
-  "PwrRestore ON",
-  "Reboot; open Device Setup and app settings",
-  "Still ON in both"
- ],
- [
-  "PWR",
   "PWR-04",
-  "PwrRestore ON, Timer, slot active, motor was OFF (dry run wait)",
+  "Timer, slot active, motor was OFF (dry run wait)",
   "Power off and on",
   "Timer; motor starts after 10 s"
  ],
  [
   "PWR",
   "PWR-04",
-  "PwrRestore ON, Timer, no slot active",
+  "Timer, no slot active",
   "Power off and on",
   "Timer; motor OFF until the next slot"
  ],
  [
   "PWR",
   "PWR-05",
-  "PwrRestore ON, Twist in ON period",
+  "Twist in ON period",
   "Power off and on",
   "Twist continues the ON period with the time left"
  ],
  [
   "PWR",
   "PWR-06",
-  "PwrRestore ON, Countdown running with 8 min left",
+  "Countdown running with 8 min left",
   "Power off and on",
-  "Countdown continues with about 8 min left"
+  "Motor ON with about 8 min left"
  ],
  [
   "BUZ",

@@ -250,6 +250,11 @@ def build_docx():
                    [1.6, 2.6, 5.4, 3.9, 3.9], client_cols=(4,))
     for d in DATA["decisions"]:
         add_row(t, [d[0], d[1], d[2], d[3], ""])
+    if DATA.get("decided"):
+        doc.add_heading("Decisions already made", level=2)
+        t = make_table(doc, ["ID", "Topic", "Client decision (implemented)"], [1.6, 4.6, 11.2])
+        for d in DATA["decided"]:
+            add_row(t, d)
     n += 1
 
     # ---- revision history ----
@@ -464,6 +469,17 @@ def build_xlsx():
         body_cell(wd, i, 4, d[3])
         body_cell(wd, i, 5, None, client=True)
         body_cell(wd, i, 6, None, client=True)
+    if DATA.get("decided"):
+        r = len(DATA["decisions"]) + 3
+        wd.cell(row=r, column=1, value="Decisions already made").font = Font(name=ARIAL, bold=True, size=11, color=NAVY)
+        r += 1
+        for col, h in enumerate(["ID", "Topic", "Client decision (implemented)"], start=1):
+            c = wd.cell(row=r, column=col, value=h)
+            c.font, c.fill, c.border = HEAD_FONT, HEAD_BG, BOX
+        for d in DATA["decided"]:
+            r += 1
+            for col, v in enumerate(d, start=1):
+                body_cell(wd, r, col, v, bold=(col == 1))
     wd.freeze_panes = "A2"
 
     wb.calculation.fullCalcOnLoad = True

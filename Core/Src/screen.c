@@ -185,7 +185,7 @@ static uint8_t menu_view_top = 0;
 static const char* const devset_menu_items[] = {
     "Dry Run En","Test Time","Retry Gap","Low Volt","High Volt",
     "Over Load","Under Load","Max Run","Set Date","Set Time","Set Day",
-    "Power Restore","Factory Reset","Back"
+    "Factory Reset","Back"      /* Power Restore removed: last mode is always restored */
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
 
@@ -427,10 +427,8 @@ static void show_devset_menu(void)
             default: break;
         }
     }
-    /* Power Restore shows its current value right in the list */
-    const char *pwrLabel = (edit_settings_pwrrest == 0) ? "PwrRestore ON" : "PwrRestore OFF";
-    const char *name0 = (idx0 == 11) ? pwrLabel : devset_menu_items[idx0 < DEVSET_MENU_COUNT ? idx0 : 0];
-    const char *name1 = (idx1 == 11) ? pwrLabel : devset_menu_items[idx1 < DEVSET_MENU_COUNT ? idx1 : 0];
+    const char *name0 = devset_menu_items[idx0 < DEVSET_MENU_COUNT ? idx0 : 0];
+    const char *name1 = devset_menu_items[idx1 < DEVSET_MENU_COUNT ? idx1 : 0];
     if (idx0 < DEVSET_MENU_COUNT)
         snprintf(l0, sizeof(l0), "%c%c%-14.14s", (devset_idx==idx0?'>':' '), star0, name0);
     else snprintf(l0, sizeof(l0), "                ");
@@ -816,9 +814,6 @@ static void menu_select(void)
             case 9:  ui = UI_DEVSET_EDIT_TIME; break;
             case 10: ui = UI_DEVSET_EDIT_DAY;  break;
             case 11:
-                edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
-                ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
-            case 12:
                 edit_settings_factory_yes ^= 1;
                 if (edit_settings_factory_yes)
                 {
@@ -836,7 +831,7 @@ static void menu_select(void)
                     clear_sticky_mode_flags(); ui = UI_DASH;
                 }
                 break;
-            case 13: ui = UI_MENU; break;
+            case 12: ui = UI_MENU; break;
         }
         screenNeedsRefresh = true; return;
     }

@@ -92,7 +92,7 @@ static uint32_t starterOffPulseEnd = 0;
 #define FACTORY_UV            180U
 #define FACTORY_OV            280U
 #define FACTORY_OVERLOAD_A    25.0f
-#define FACTORY_PWR_RESTORE   1U       /* 0 = ON, 1 = OFF            */
+#define FACTORY_PWR_RESTORE   0U       /* always restore (setting removed) */
 #define FACTORY_COUNTDOWN_MIN 10U
 
 #define GW_START_LEVEL_PERCENT 75      /* ground water may start the motor up to 75% */
@@ -292,12 +292,12 @@ typedef struct __attribute__((packed))
 static bool     suppressAutoOneCycle  = false;
 static uint32_t autoBootIgnoreUntil   = 0;
 
-/* Client Key Story: Auto on key = level goes BELOW 50%. The probes read
- * 0/25/50/75/100, so the motor starts at 25% (open point DEC-08). */
-#define AUTO_START_LEVEL_PERCENT   25
-#define AUTO_REFILL_LEVEL_PERCENT  25   /* after the tank has filled, restart only at <= 25% */
+/* Auto starts at 50% (client decision Q1-b), also after it has filled
+ * the tank. Twist restarts after tank full only at 25%. */
+#define AUTO_START_LEVEL_PERCENT   50
+#define AUTO_REFILL_LEVEL_PERCENT  25   /* Twist: after tank full, restart only at <= 25% */
 
-static bool autoFilledLatch = false;    /* Auto filled the tank; next start waits for 25% */
+static bool autoFilledLatch = false;    /* Auto filled the tank: ground water alone does not restart it */
 #define AUTO_STOP_LEVEL_PERCENT    100
 
 
@@ -663,7 +663,7 @@ void ModelHandle_LoadModeState(void)
         modeState.power_restore_mode = FACTORY_PWR_RESTORE;
     }
     else memcpy(&modeState, raw, sizeof(modeState));
-    powerRestoreMode = (modeState.power_restore_mode == 1) ? 1 : 0;
+    powerRestoreMode = 0;   /* setting removed: last mode is always restored */
 
     /* The last mode is kept in every power-restore setting; whether it is
      * resumed and whether the motor may run straight away is decided in
@@ -816,13 +816,12 @@ void ModelHandle_ProcessDryRun(void)
 
 uint8_t ModelHandle_GetPowerRestoreMode(void)    { return powerRestoreMode; }
 
-/* 0 = ON (restore last mode), 1 = OFF (power up in manual, motor off).
- * The old 2 = LAST is folded into ON, which now restores motor state. */
+/* The Power Restore setting was removed (client decisions Q3/Q4): the last
+ * mode is always restored. Kept so old app packets (PR=x) do no harm. */
 void ModelHandle_SetPowerRestoreMode(uint8_t mode)
 {
-    if (mode > 1) mode = 0;
-    powerRestoreMode = mode;
-    ModelHandle_SaveModeState();
+    (void)mode;
+    powerRestoreMode = 0;
 }
 
 void ModelHandle_ForcePowerRestoreModeEarly(uint8_t mode)
@@ -1148,25 +1147,18 @@ void ModelHandle_OnPowerUp(void)
     dryState            = DRY_IDLE;
     ModelHandle_LoadBuzzerSettings();
 
-    /* Power restore (Device Setup) - client "Key Story":
-     *   ON  - last mode comes back.
-     *         Auto: motor starts (unless the tank is full).
-     *         Timer: starts if the clock is inside an active slot.
-     *         Twist: continues the period it was in with the time left
-     *                (only inside its start/stop time).
-     *         Countdown: continues with the time left.
-     *         Semi-Auto: runs again if its motor was running.
-     *         Manual: comes back with the motor off.
-     *         Refill is not a mode: the mode it was started from applies.
-     *   OFF - always power up in Manual with the motor off.
-     * Either way a manual press starts the motor. */
+    /* After a power cut the last mode always comes back (client Key
+     * Story; the Power Restore setting was removed - decisions Q3/Q4):
+     *   Auto: motor starts (unless the tank is full).
+     *   Timer: starts if the clock is inside an active slot.
+     *   Twist: continues the period it was in with the time left, if its
+     *          end time has not passed; otherwise off.
+     *   Countdown: motor on for the time left.
+     *   Semi-Auto: runs again (until tank full) if its motor was running.
+     *   Manual: comes back with the motor off (power off is its off key).
+     *   Refill is not a mode: the mode it was started from applies. */
     bool wasRunning = modeState.motor_on;
-    if (powerRestoreMode != 0)
-    {
-        manualActive = true;
-        semiAutoActive = countdownActive = timerActive = twistActive = autoActive = false;
-    }
-    else if (modeState.countdown_on)
+    if (modeState.countdown_on)
     {
         ModelHandle_LoadCountdown();       /* resumes with the time left */
     }
@@ -1698,15 +1690,8 @@ void ModelHandle_ProcessTimerSlots(void)
         timer_begin_run(now, dryEn);
         return;
     }
-    if (gwFalling && motorOn)
-    {
-        timerState          = TIMER_WAIT_RETRY;
-        timerStateDeadline  = now + get_test_gap_ms();
-        timerGroundWaterRun = false;
-        dryState            = DRY_IDLE;
-        stop_motor();
-        return;
-    }
+    /* Ground water lost is not an off key (client decision Q2-b) */
+    (void)gwFalling;
 
     switch (timerState)
     {
@@ -2013,15 +1998,8 @@ static void auto_tick(void)
         auto_begin_run(now, dryEn);
         return;
     }
-    if (gwFalling && motorOn)
-    {
-        stop_motor();
-        autoGroundWaterRun = false;
-        autoState          = AUTO_DRY_CHECK;
-        stateDeadline      = now + get_test_gap_ms();
-        dryState           = DRY_IDLE;
-        return;
-    }
+    /* Ground water lost is not an off key (client decision Q2-b) */
+    (void)gwFalling;
 
     switch (autoState)
     {
@@ -2079,11 +2057,12 @@ static void auto_tick(void)
             /* After Auto has filled the tank it refills only once the level
              * is down to 25% (a fresh ground-water detection, handled
              * above, still starts it). Otherwise the start level is 50%. */
-            uint8_t startLevel = autoFilledLatch ? AUTO_REFILL_LEVEL_PERCENT
-                                                 : AUTO_START_LEVEL_PERCENT;
+            /* After Auto has filled the tank, ground water that simply
+             * stays connected does not restart it at 75% (a fresh
+             * detection, handled above, still does). */
             bool gwStart = !autoFilledLatch && groundWater &&
                            level <= GW_START_LEVEL_PERCENT;
-            if (level > startLevel && !autoRestoreOverride && !gwStart)
+            if (level > AUTO_START_LEVEL_PERCENT && !autoRestoreOverride && !gwStart)
             {
                 stop_motor();
                 autoState     = AUTO_ON_WAIT;
@@ -2231,19 +2210,17 @@ static void countdown_finished(void)
     ModelHandle_StopCountdown();
 }
 
-/* Twist with dry run / ground water:
+/* Twist with dry run:
  *   ON period  - motor on for the on duration. With dry run enabled the
  *                first "dry run" minutes are a test: no water -> motor off
  *                for the rest of this ON period (twist keeps going; the
  *                next ON period tests again). If the ON period is shorter
  *                than the test, the check is made at its end.
  *   OFF period - motor off for the off duration.
- *   Ground water YES -> NO: motor off until it is back, then an ON period.
+ *   Ground water is not used in Twist.
  *   Tank full: paused until the level is down to 25%. */
 static uint32_t twistDryDeadline     = 0;      /* end of this ON period's dry test, 0 = none */
 static bool     twistDryFailed       = false;  /* no water: off for the rest of this ON period */
-static bool     twistGwHold          = false;  /* ground water lost: off until it returns */
-static bool     prevGroundWaterTwist = false;
 static bool     twistFilledLatch     = false;  /* tank filled: wait for <= 25% */
 
 static void twist_begin_phase(uint32_t now, bool onPhase)
@@ -2306,8 +2283,6 @@ static void twist_reset_sensors(void)
 {
     twistDryDeadline     = 0;
     twistDryFailed       = false;
-    twistGwHold          = false;
-    prevGroundWaterTwist = groundWater;
     twistFilledLatch     = false;   /* starting twist: normal cycle unless full */
 }
 
@@ -2377,12 +2352,7 @@ static void twist_tick(void)
     if (!twistActive) return;
     if (motorOwner != MOTOR_OWNER_TWIST) return;
 
-    ModelHandle_CheckGroundWater();
     ModelHandle_CheckDryRun();
-
-    bool gwRising  = (groundWater && !prevGroundWaterTwist);
-    bool gwFalling = (!groundWater && prevGroundWaterTwist);
-    prevGroundWaterTwist = groundWater;
 
     /* Tank full: twist pauses and restarts only once the level is down
      * to 25% (same rule as Auto). */
@@ -2406,22 +2376,8 @@ static void twist_tick(void)
 
     uint32_t now = now_ms();
 
-    /* Ground water lost -> motor off until it comes back; then the
-     * cycle restarts with an ON period. A probe that was never
-     * connected (always NO) gives no edge, so twist ignores it. */
-    if (gwFalling) twistGwHold = true;
-    if (gwRising && twistGwHold)
-    {
-        twistGwHold    = false;
-        twist_deadline = 0;
-        twist_on_phase = true;
-    }
-    if (twistGwHold)
-    {
-        stop_motor();
-        dryState = DRY_IDLE;
-        return;
-    }
+    /* Ground water is not used in Twist (client decision Q2-b and the
+     * Key Story: twist on key is its own time only). */
 
     if (twist_deadline == 0)
         twist_begin_phase(now, twist_on_phase);
