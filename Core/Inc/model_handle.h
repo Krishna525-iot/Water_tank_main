@@ -146,6 +146,9 @@ void     ModelHandle_StopCountdown(void);
 uint16_t ModelHandle_GetCountdownDefaultMin(void);
 void     ModelHandle_SetCountdownDefaultMin(uint16_t minutes);
 void     ModelHandle_LoadCountdownDefault(void);
+void     ModelHandle_LoadCountdown(void);
+bool     ModelHandle_IsAutoPausedByUser(void);    /* Auto switched off with the button */
+bool     ModelHandle_IsManualPausedByUser(void);  /* Manual switched off with the button */
 
 /* on_min / off_min in minutes; start == stop time means no time window */
 void     ModelHandle_StartTwist(uint16_t on_min, uint16_t off_min,

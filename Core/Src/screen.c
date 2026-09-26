@@ -320,6 +320,9 @@ static void show_dash(void)
     else if (twistActive)       mode = motorOn ? "TWIST  " : "TWIST W";
     else if (semiAutoActive)    mode = motorOn ? "SEMI   " : "SEMI";
     else if (manualActive)      mode = "MANUAL ";
+    /* Auto / Manual switched off with the button: still the current mode */
+    else if (ModelHandle_IsAutoPausedByUser())   mode = "AUTO   ";
+    else if (ModelHandle_IsManualPausedByUser()) mode = "MANUAL ";
     else if (tankFull)          mode = "FULL   ";
     else if (dash_countdown_shown)  mode = "COUNT  ";
     else if (dash_semi_shown)       mode = "SEMI   ";
@@ -1527,6 +1530,15 @@ void Screen_Update(void)
         (now - lastUserAction >= AUTO_BACK_MS))
     {
         ui = UI_DASH;
+        screenNeedsRefresh = true;
+    }
+
+    /* A running countdown always shows its time - also when it was started
+     * from the app or resumed after a power cut (not only by button 4). */
+    if (ui == UI_DASH && countdownActive)
+    {
+        ui = UI_COUNTDOWN;
+        countdown_was_active = true;
         screenNeedsRefresh = true;
     }
 

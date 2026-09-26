@@ -75,6 +75,8 @@ static bool     powerRestoreHold    = false;  /* restore OFF (or LAST with motor
 static uint32_t powerRestoreHoldUntil = 0;    /* ...at most one testing gap (itself an on key) */
 static bool     manualMotorOff      = false;  /* manual mode active but motor switched/held off */
 static bool     manualFromRestore   = false;  /* manual restored at power-up, motor held off */
+static bool     autoPausedByUser    = false;  /* Auto switched off with the button (shows "AUTO", motor off) */
+static bool     manualPausedByUser  = false;  /* Manual switched off with the button */
 
 /* Relay2 / Relay3 give a 2 s push to an external starter panel
  * (start push when the motor relay closes, stop push when it opens). */
@@ -201,6 +203,9 @@ static uint8_t  get_today_mask(void);
 static bool     slot_is_active_now(const TimerSlot *t);
 static bool     twist_window_active(void);
 static void     twist_tick(void);
+static void     twist_reset_sensors(void);
+static bool     twist_load_run(void);
+static void     twist_save_run(void);
 static bool     isTankFull(void);
 static inline bool isAnyModeActive(void);
 static void     auto_tick(void);
@@ -287,7 +292,9 @@ typedef struct __attribute__((packed))
 static bool     suppressAutoOneCycle  = false;
 static uint32_t autoBootIgnoreUntil   = 0;
 
-#define AUTO_START_LEVEL_PERCENT   50
+/* Client Key Story: Auto on key = level goes BELOW 50%. The probes read
+ * 0/25/50/75/100, so the motor starts at 25% (open point DEC-08). */
+#define AUTO_START_LEVEL_PERCENT   25
 #define AUTO_REFILL_LEVEL_PERCENT  25   /* after the tank has filled, restart only at <= 25% */
 
 static bool autoFilledLatch = false;    /* Auto filled the tank; next start waits for 25% */
@@ -494,34 +501,98 @@ void ModelHandle_LoadSettingsFromEEPROM(void)
     ModelHandle_LoadCountdownDefault();
 }
 
+/* Mode that was running before a one-time run (Refill, Countdown); it
+ * continues when that run ends. */
+static bool previousTimer       = false;
+static bool previousTwist       = false;
+static bool previousAutoPaused  = false;
+static bool previousManualPaused = false;
+
 void ModelHandle_SaveModeState(void)
 {
-    modeState.manual_on          = manualActive;
-    modeState.semi_on            = semiAutoActive;
-    modeState.timer_on           = timerActive;
-    modeState.countdown_on       = countdownActive;
-    modeState.twist_on           = twistActive;
-    modeState.auto_on            = autoActive;
-    modeState.motor_on           = (HAL_GPIO_ReadPin(Relay1_GPIO_Port, Relay1_Pin) == GPIO_PIN_SET);
+    if (restartActive)
+    {
+        /* Refill is not a mode: during it the mode it was started from is
+         * the last mode, so a power cut returns to that mode. */
+        modeState.manual_on    = previousManual || previousManualPaused;
+        modeState.semi_on      = previousSemi;
+        modeState.timer_on     = previousTimer;
+        modeState.countdown_on = previousCountdown;
+        modeState.twist_on     = previousTwist;
+        modeState.auto_on      = previousAuto || previousAutoPaused;
+        modeState.motor_on     = false;
+    }
+    else
+    {
+        /* Auto / Manual switched off with the button still count as the
+         * last mode for power restore (the dashboard keeps showing
+         * "AUTO"/"MANUAL" with the motor off). */
+        modeState.manual_on    = manualActive || manualPausedByUser;
+        modeState.semi_on      = semiAutoActive;
+        modeState.timer_on     = timerActive;
+        modeState.countdown_on = countdownActive;
+        modeState.twist_on     = twistActive;
+        modeState.auto_on      = autoActive || autoPausedByUser;
+        modeState.motor_on     = (HAL_GPIO_ReadPin(Relay1_GPIO_Port, Relay1_Pin) == GPIO_PIN_SET);
+    }
     modeState.power_restore_mode = powerRestoreMode;
     EEPROM_WriteBuffer(0x0200, (uint8_t*)&modeState, sizeof(modeState));
 }
 
+/* The previous mode is also kept in EEPROM, so a countdown resumed after
+ * a power cut still returns to the right mode when it ends. */
+#define EE_ADDR_PREV_MODE  0x0070
+#define PREV_MODE_SIG      0xB7
+
+static void save_previous_mode(void)
+{
+    uint8_t flags = (previousManual       ? 0x01 : 0) | (previousSemi  ? 0x02 : 0) |
+                    (previousCountdown    ? 0x04 : 0) | (previousAuto  ? 0x08 : 0) |
+                    (previousTimer        ? 0x10 : 0) | (previousTwist ? 0x20 : 0) |
+                    (previousAutoPaused   ? 0x40 : 0) | (previousManualPaused ? 0x80 : 0);
+    uint8_t b[3] = { PREV_MODE_SIG, flags, (uint8_t)(PREV_MODE_SIG ^ flags) };
+    EEPROM_WriteBuffer(EE_ADDR_PREV_MODE, b, sizeof(b));
+}
+
+static void load_previous_mode(void)
+{
+    uint8_t b[3];
+    EEPROM_ReadBuffer(EE_ADDR_PREV_MODE, b, sizeof(b));
+    uint8_t flags = (b[0] == PREV_MODE_SIG && b[2] == (uint8_t)(b[0] ^ b[1])) ? b[1] : 0;
+    previousManual       = (flags & 0x01) != 0;
+    previousSemi         = (flags & 0x02) != 0;
+    previousCountdown    = (flags & 0x04) != 0;
+    previousAuto         = (flags & 0x08) != 0;
+    previousTimer        = (flags & 0x10) != 0;
+    previousTwist        = (flags & 0x20) != 0;
+    previousAutoPaused   = (flags & 0x40) != 0;
+    previousManualPaused = (flags & 0x80) != 0;
+}
+
 static void backup_current_mode(void)
 {
-    previousOwner     = motorOwner;
-    previousManual    = manualActive;
-    previousSemi      = semiAutoActive;
-    previousCountdown = countdownActive;
-    previousAuto      = autoActive;
+    previousOwner        = motorOwner;
+    previousManual       = manualActive;
+    previousSemi         = semiAutoActive;
+    previousCountdown    = countdownActive;
+    previousAuto         = autoActive;
+    previousTimer        = timerActive;
+    previousTwist        = twistActive;
+    previousAutoPaused   = autoPausedByUser;
+    previousManualPaused = manualPausedByUser;
+    save_previous_mode();
 }
 
 static void restore_previous_mode(void)
 {
-    manualActive    = previousManual;
-    semiAutoActive  = previousSemi;
-    countdownActive = previousCountdown;
-    autoActive      = previousAuto;
+    manualActive       = previousManual;
+    semiAutoActive     = previousSemi;
+    countdownActive    = previousCountdown;
+    autoActive         = previousAuto;
+    timerActive        = previousTimer;
+    twistActive        = previousTwist;
+    autoPausedByUser   = previousAutoPaused;
+    manualPausedByUser = previousManualPaused;
 
     if (previousManual)
         motorOwner = MOTOR_OWNER_MANUAL;
@@ -529,8 +600,31 @@ static void restore_previous_mode(void)
         motorOwner = MOTOR_OWNER_SEMIAUTO;
     else if (previousCountdown)
         motorOwner = MOTOR_OWNER_COUNTDOWN;
+    else if (previousTimer)
+    {
+        /* Timer / Twist / Auto decide the motor themselves on their next tick */
+        motorOwner         = MOTOR_OWNER_TIMER;
+        timerState         = TIMER_RUN_TEST;
+        timerStateDeadline = 0;
+        dryState           = DRY_IDLE;
+        return;
+    }
+    else if (previousTwist)
+    {
+        motorOwner     = MOTOR_OWNER_TWIST;
+        twist_deadline = 0;
+        twist_on_phase = true;
+        twist_reset_sensors();
+        return;
+    }
     else if (previousAuto)
-        motorOwner = MOTOR_OWNER_AUTO;
+    {
+        motorOwner    = MOTOR_OWNER_AUTO;
+        autoState     = AUTO_ON_WAIT;
+        stateDeadline = 0;
+        dryState      = DRY_IDLE;
+        return;
+    }
     else
     {
         motorOwner = MOTOR_OWNER_NONE;
@@ -571,15 +665,15 @@ void ModelHandle_LoadModeState(void)
     else memcpy(&modeState, raw, sizeof(modeState));
     powerRestoreMode = (modeState.power_restore_mode == 1) ? 1 : 0;
 
-    /* The last mode is kept in every power-restore setting; whether the
-     * motor may run straight away is decided in ModelHandle_OnPowerUp().
-     * Semi-auto, countdown and refill are one-shot runs, not restored. */
+    /* The last mode is kept in every power-restore setting; whether it is
+     * resumed and whether the motor may run straight away is decided in
+     * ModelHandle_OnPowerUp(). Refill is never saved as a mode. */
     manualActive    = modeState.manual_on;
     timerActive     = modeState.timer_on;
     twistActive     = modeState.twist_on;
     autoActive      = modeState.auto_on;
-    semiAutoActive  = false;
-    countdownActive = false;
+    semiAutoActive  = modeState.semi_on;
+    countdownActive = false;              /* resumed from its own block */
 }
 
 void ModelHandle_SaveTimerToEEPROM(void)
@@ -790,6 +884,8 @@ void ModelHandle_ToggleManual(void)
         motorOwner         = MOTOR_OWNER_MANUAL;
         dryState           = DRY_IDLE;
         senseMaxRunReached = false;
+        autoPausedByUser   = false;
+        manualPausedByUser = false;
 
         start_motor();
     }
@@ -799,6 +895,7 @@ void ModelHandle_ToggleManual(void)
         manualOverride = false;
         motorOwner     = MOTOR_OWNER_NONE;
         dryState       = DRY_IDLE;
+        manualPausedByUser = true;   /* dashboard still shows MANUAL, motor off */
 
         stop_motor();
     }
@@ -1038,6 +1135,8 @@ static inline void clear_all_modes(void)
     manualMotorOff      = false;
     manualFromRestore   = false;
     powerRestoreHold    = false;   /* a user-started mode is an on key */
+    autoPausedByUser    = false;   /* another mode is now the last mode */
+    manualPausedByUser  = false;
 }
 
 void ModelHandle_OnPowerUp(void)
@@ -1049,13 +1148,16 @@ void ModelHandle_OnPowerUp(void)
     dryState            = DRY_IDLE;
     ModelHandle_LoadBuzzerSettings();
 
-    /* Power restore (Device Setup):
+    /* Power restore (Device Setup) - client "Key Story":
      *   ON  - last mode comes back.
      *         Auto: motor starts (unless the tank is full).
-     *         Timer/Twist: motor state as at power loss - running ->
-     *         runs again; stopped -> stays off until the mode's next on
-     *         key (at most one testing gap).
-     *         Manual comes back with the motor off.
+     *         Timer: starts if the clock is inside an active slot.
+     *         Twist: continues the period it was in with the time left
+     *                (only inside its start/stop time).
+     *         Countdown: continues with the time left.
+     *         Semi-Auto: runs again if its motor was running.
+     *         Manual: comes back with the motor off.
+     *         Refill is not a mode: the mode it was started from applies.
      *   OFF - always power up in Manual with the motor off.
      * Either way a manual press starts the motor. */
     bool wasRunning = modeState.motor_on;
@@ -1064,11 +1166,19 @@ void ModelHandle_OnPowerUp(void)
         manualActive = true;
         semiAutoActive = countdownActive = timerActive = twistActive = autoActive = false;
     }
+    else if (modeState.countdown_on)
+    {
+        ModelHandle_LoadCountdown();       /* resumes with the time left */
+    }
     bool runNow = wasRunning;
     powerRestoreHold      = !runNow;
     powerRestoreHoldUntil = powerOnMs + get_test_gap_ms();
 
-    if (manualActive)
+    if (countdownActive)
+    {
+        powerRestoreHold = false;          /* motor runs for the time left */
+    }
+    else if (manualActive)
     {
         motorOwner        = MOTOR_OWNER_MANUAL;
         manualOverride    = true;
@@ -1076,17 +1186,31 @@ void ModelHandle_OnPowerUp(void)
         manualFromRestore = true;
         powerRestoreHold  = false;
     }
+    else if (semiAutoActive)
+    {
+        /* Semi-Auto runs again only if its motor was on at power loss */
+        semiAutoActive   = wasRunning;
+        motorOwner       = wasRunning ? MOTOR_OWNER_SEMIAUTO : MOTOR_OWNER_NONE;
+        semiTankFullHold = false;
+        powerRestoreHold = false;
+    }
     else if (timerActive)
     {
+        /* Inside an active slot the timer starts; outside it waits */
         motorOwner         = MOTOR_OWNER_TIMER;
         timerState         = TIMER_RUN_TEST;
         timerStateDeadline = 0;
+        powerRestoreHold   = false;
     }
     else if (twistActive)
     {
-        motorOwner     = MOTOR_OWNER_TWIST;
-        twist_deadline = 0;
-        twist_on_phase = runNow;   /* OFF: start with the off period */
+        motorOwner = MOTOR_OWNER_TWIST;
+        twist_reset_sensors();
+        if (!twist_load_run())          /* continue the period with its time left */
+        {
+            twist_deadline = 0;
+            twist_on_phase = runNow;
+        }
         powerRestoreHold = false;
     }
     else if (autoActive)
@@ -1179,9 +1303,9 @@ static inline void stop_motor(void) { motor_apply(false); }
 
 static uint32_t maxRunLockUntil = 0;
 
-/* Max run is an off key. One-shot user runs (manual, semi-auto, refill)
- * end; Auto/Timer/Twist stay armed and may run again after the testing
- * gap. Countdown is exempt - the user set its end time explicitly. */
+/* Max run is an off key in every mode. Refill and Countdown end (the
+ * previous mode continues), Semi-Auto ends, Manual stays shown with the
+ * motor off; Auto/Timer/Twist may run again after the testing gap. */
 static void check_max_run(void)
 {
     uint32_t now = HAL_GetTick();
@@ -1194,7 +1318,6 @@ static void check_max_run(void)
     }
 
     if (sys.maxrun_min == 0 || !Motor_GetStatus()) return;
-    if (countdownActive) return;
     uint32_t limit = (uint32_t)sys.maxrun_min * 60000UL;
     if ((now - motorOnStartMs) < limit) return;
 
@@ -1204,8 +1327,13 @@ static void check_max_run(void)
     stop_motor();
     dryState = DRY_IDLE;
 
-    if (restartActive) ModelHandle_StopRestart();
-    manualActive   = false;
+    if (restartActive)   ModelHandle_StopRestart();
+    if (countdownActive) ModelHandle_StopCountdown();
+    if (manualActive)
+    {
+        manualActive       = false;
+        manualPausedByUser = true;      /* still Manual, motor off */
+    }
     manualOverride = false;
     manualMotorOff = false;
     semiAutoActive = false;
@@ -1284,7 +1412,9 @@ static inline bool isAnyModeActive(void)
 void ModelHandle_SoftDryRunHandler(void)
 {
     if (!dry_protection_enabled()) { dryState = DRY_IDLE; return; }
-    if (motorOwner == MOTOR_OWNER_TIMER || motorOwner == MOTOR_OWNER_AUTO) return;
+    /* Timer, Auto and Twist run their own dry-run test */
+    if (motorOwner == MOTOR_OWNER_TIMER || motorOwner == MOTOR_OWNER_AUTO ||
+        motorOwner == MOTOR_OWNER_TWIST) return;
     if (motorOwner == MOTOR_OWNER_MANUAL || motorOwner == MOTOR_OWNER_NONE)
         { dryState = DRY_IDLE; return; }
     uint32_t now   = HAL_GetTick();
@@ -1730,6 +1860,8 @@ void ModelHandle_StopAuto(void)
     motorOwner       = MOTOR_OWNER_NONE;
     autoGroundWaterRun = false;
     autoRestoreOverride = false;
+    autoPausedByUser   = true;   /* dashboard still shows AUTO, motor off */
+    manualPausedByUser = false;
 
     stop_motor();
     ModelHandle_SaveModeState();
@@ -1757,6 +1889,7 @@ static void auto_mode_background_control(void)
     if (now < autoBootIgnoreUntil) return;
     if (now < bootBlockUntil) return;
     if (manualActive || semiAutoActive || timerActive || countdownActive || twistActive) return;
+    if (manualPausedByUser || restartActive) return;   /* still Manual (motor off) / Refill running */
 
     uint8_t level = get_tank_level_percent();
     if (!autoActive && restore_hold_active())
@@ -1971,6 +2104,9 @@ void ModelHandle_StartCountdown(uint32_t seconds)
     if (seconds < 60)    seconds = 60;
     if (seconds > 10800) seconds = 10800;
 
+    /* Remember the running mode; it continues when the countdown ends.
+     * (Restarting a running countdown keeps the original one.) */
+    if (!countdownActive) backup_current_mode();
     clear_all_modes();
 
     senseMaxRunReached = false;
@@ -1986,6 +2122,7 @@ void ModelHandle_StartCountdown(uint32_t seconds)
 
     start_motor();
     ModelHandle_SaveModeState();
+    SaveCountdown();
 }
 
 void ModelHandle_StopCountdown(void)
@@ -2001,8 +2138,18 @@ void ModelHandle_StopCountdown(void)
     suppressAutoOneCycle = true;
 
     stop_motor();
+    SaveCountdown();
+
+    /* However it ends (time over, user stop, fault), the mode that was
+     * running before the countdown continues. Never "return" into a
+     * countdown (possible if a Refill was started during it). */
+    previousCountdown = false;
+    restore_previous_mode();
     ModelHandle_SaveModeState();
 }
+
+bool ModelHandle_IsAutoPausedByUser(void)   { return autoPausedByUser; }
+bool ModelHandle_IsManualPausedByUser(void) { return manualPausedByUser; }
 /* Countdown duration used by the device button (single press); set from
  * the long-press edit screen or the app, kept in EEPROM. */
 #define EE_ADDR_CD_DEFAULT 0x0060
@@ -2057,26 +2204,118 @@ static void SaveCountdown(void)
     EEPROM_WriteBuffer(EE_ADDR_COUNTDOWN_BLOCK, (uint8_t*)&b, sizeof(b));
 }
 
+/* Power restore ON: continue a countdown that was running at power loss
+ * with the time it had left (saved every minute, so at most ~1 min is
+ * repeated). The time starts counting when the motor may start again. */
 void ModelHandle_LoadCountdown(void)
 {
     CountdownBlock b;
     EEPROM_ReadBuffer(EE_ADDR_COUNTDOWN_BLOCK, (uint8_t*)&b, sizeof(b));
     if (b.sig != CD_SIGNATURE) return;
     if (CD_CRC((uint8_t*)&b, sizeof(b) - 2) != b.crc) return;
-    if (b.active && b.remaining > 0)
+    if (b.active && b.remaining > 0 && b.remaining <= 10800UL)
     {
         countdownActive   = true;
         countdownMode     = true;
         countdownDuration = b.remaining;
-        cd_deadline       = now_ms() + b.remaining * 1000UL;
+        cd_deadline       = bootStartBlockUntil + b.remaining * 1000UL;
+        cdTankFullHold    = false;
         motorOwner        = MOTOR_OWNER_COUNTDOWN;
+        load_previous_mode();              /* mode to return to at the end */
     }
+}
+
+/* Countdown time is over (StopCountdown returns to the previous mode) */
+static void countdown_finished(void)
+{
+    ModelHandle_StopCountdown();
+}
+
+/* Twist with dry run / ground water:
+ *   ON period  - motor on for the on duration. With dry run enabled the
+ *                first "dry run" minutes are a test: no water -> motor off
+ *                for the rest of this ON period (twist keeps going; the
+ *                next ON period tests again). If the ON period is shorter
+ *                than the test, the check is made at its end.
+ *   OFF period - motor off for the off duration.
+ *   Ground water YES -> NO: motor off until it is back, then an ON period.
+ *   Tank full: paused until the level is down to 25%. */
+static uint32_t twistDryDeadline     = 0;      /* end of this ON period's dry test, 0 = none */
+static bool     twistDryFailed       = false;  /* no water: off for the rest of this ON period */
+static bool     twistGwHold          = false;  /* ground water lost: off until it returns */
+static bool     prevGroundWaterTwist = false;
+static bool     twistFilledLatch     = false;  /* tank filled: wait for <= 25% */
+
+static void twist_begin_phase(uint32_t now, bool onPhase)
+{
+    uint32_t onMs  = (uint32_t)twistSettings.onDurationSeconds  * 1000UL;
+    uint32_t offMs = (uint32_t)twistSettings.offDurationSeconds * 1000UL;
+
+    twist_on_phase   = onPhase;
+    twist_deadline   = now + (onPhase ? onMs : offMs);
+    if (twist_deadline == 0) twist_deadline = 1;
+    twistDryFailed   = false;
+    twistDryDeadline = 0;
+    dryState         = DRY_IDLE;
+
+    if (onPhase && dry_protection_enabled())
+    {
+        uint32_t testMs = get_dry_test_ms();
+        if (testMs > onMs) testMs = onMs;
+        twistDryDeadline = now + testMs;
+        if (twistDryDeadline == 0) twistDryDeadline = 1;
+        dryState = DRY_WAITING;
+    }
+    twist_save_run();
+}
+
+/* Twist period (ON/OFF) and its time left, kept in EEPROM at every period
+ * start and once a minute, so after a power cut twist continues the same
+ * period with the time it had left (up to 1 min may be repeated). */
+#define EE_ADDR_TWIST_RUN  0x0074
+#define TWIST_RUN_SIG      0x7A
+
+static void twist_save_run(void)
+{
+    uint32_t now = HAL_GetTick();
+    uint32_t left = 0;
+    if (twist_deadline && (int32_t)(twist_deadline - now) > 0)
+        left = (twist_deadline - now) / 1000UL;
+    if (left > 0xFFFF) left = 0xFFFF;
+    uint8_t b[5] = { TWIST_RUN_SIG, (uint8_t)(twist_on_phase ? 1 : 0),
+                     (uint8_t)left, (uint8_t)(left >> 8), 0 };
+    b[4] = (uint8_t)(b[0] ^ b[1] ^ b[2] ^ b[3]);
+    EEPROM_WriteBuffer(EE_ADDR_TWIST_RUN, b, sizeof(b));
+}
+
+static bool twist_load_run(void)
+{
+    uint8_t b[5];
+    EEPROM_ReadBuffer(EE_ADDR_TWIST_RUN, b, sizeof(b));
+    if (b[0] != TWIST_RUN_SIG || b[4] != (uint8_t)(b[0] ^ b[1] ^ b[2] ^ b[3]) || b[1] > 1)
+        return false;
+    uint32_t left = (uint32_t)b[2] | ((uint32_t)b[3] << 8);
+    if (left == 0) return false;
+    twist_on_phase = (b[1] != 0);
+    twist_deadline = bootStartBlockUntil + left * 1000UL;   /* time counts once the motor may start */
+    if (twist_deadline == 0) twist_deadline = 1;
+    return true;
+}
+
+static void twist_reset_sensors(void)
+{
+    twistDryDeadline     = 0;
+    twistDryFailed       = false;
+    twistGwHold          = false;
+    prevGroundWaterTwist = groundWater;
+    twistFilledLatch     = false;   /* starting twist: normal cycle unless full */
 }
 
 void ModelHandle_StartTwist(uint16_t on_s, uint16_t off_s,
                             uint8_t onH, uint8_t onM,
                             uint8_t offH, uint8_t offM)
 {
+    twist_reset_sensors();
     clear_all_modes();
     uint32_t on_sec  = (on_s  ? on_s  : 1) * 60UL;
     uint32_t off_sec = (off_s ? off_s : 1) * 60UL;
@@ -2138,38 +2377,73 @@ static void twist_tick(void)
     if (!twistActive) return;
     if (motorOwner != MOTOR_OWNER_TWIST) return;
 
-    if (!twist_window_active())
-    {
-        stop_motor();
-        twist_deadline = 0;
-        twist_on_phase = true;
-        return;
-    }
+    ModelHandle_CheckGroundWater();
+    ModelHandle_CheckDryRun();
 
-    /* Tank full pauses twist (the full buzzer is handled centrally);
-     * the cycle restarts with an on period once the level drops. */
-    if (isTankFull())
+    bool gwRising  = (groundWater && !prevGroundWaterTwist);
+    bool gwFalling = (!groundWater && prevGroundWaterTwist);
+    prevGroundWaterTwist = groundWater;
+
+    /* Tank full: twist pauses and restarts only once the level is down
+     * to 25% (same rule as Auto). */
+    uint8_t level = get_tank_level_percent();
+    if (level >= AUTO_STOP_LEVEL_PERCENT)        twistFilledLatch = true;
+    else if (level <= AUTO_REFILL_LEVEL_PERCENT) twistFilledLatch = false;
+
+    /* Outside the twist time window, or waiting after tank full: motor
+     * off. The cycle restarts with an ON period afterwards. (The full
+     * buzzer is handled centrally.) */
+    if (!twist_window_active() || twistFilledLatch)
     {
         stop_motor();
-        twist_deadline = 0;
-        twist_on_phase = true;
+        twist_deadline   = 0;
+        twist_on_phase   = true;
+        twistDryDeadline = 0;
+        twistDryFailed   = false;
+        dryState         = DRY_IDLE;
         return;
     }
 
     uint32_t now = now_ms();
-    if (twist_deadline == 0)
-        twist_deadline = now + (twist_on_phase ?
-            twistSettings.onDurationSeconds :
-            twistSettings.offDurationSeconds) * 1000UL;
 
-    if (now >= twist_deadline)
+    /* Ground water lost -> motor off until it comes back; then the
+     * cycle restarts with an ON period. A probe that was never
+     * connected (always NO) gives no edge, so twist ignores it. */
+    if (gwFalling) twistGwHold = true;
+    if (gwRising && twistGwHold)
     {
-        twist_on_phase = !twist_on_phase;
-        twist_deadline = now + (twist_on_phase ?
-            twistSettings.onDurationSeconds :
-            twistSettings.offDurationSeconds) * 1000UL;
+        twistGwHold    = false;
+        twist_deadline = 0;
+        twist_on_phase = true;
     }
-    if (twist_on_phase) start_motor(); else stop_motor();
+    if (twistGwHold)
+    {
+        stop_motor();
+        dryState = DRY_IDLE;
+        return;
+    }
+
+    if (twist_deadline == 0)
+        twist_begin_phase(now, twist_on_phase);
+
+    /* Dry-run test at the start of each ON period (if enabled) */
+    if (twist_on_phase && twistDryDeadline &&
+        (int32_t)(now - twistDryDeadline) >= 0)
+    {
+        twistDryDeadline = 0;
+        if (senseDryRun) dryState = DRY_IDLE;                        /* water: keep running */
+        else { twistDryFailed = true; dryState = DRY_FAULT; }        /* no water: off till period ends */
+    }
+
+    if ((int32_t)(now - twist_deadline) >= 0)
+        twist_begin_phase(now, !twist_on_phase);
+
+    {
+        static uint32_t lastTwistSave = 0;
+        if ((now - lastTwistSave) >= 60000UL) { lastTwistSave = now; twist_save_run(); }
+    }
+
+    if (twist_on_phase && !twistDryFailed) start_motor(); else stop_motor();
 }
 
 
@@ -2270,19 +2544,23 @@ void ModelHandle_Process(void)
                 ModelHandle_SaveModeState();
                 break;
             }
-            if (protectionFault) { stop_motor(); break; }
+            /* Voltage / current fault is an off key: Refill ends and the
+             * mode it was started from continues. */
+            if (protectionFault) { ModelHandle_StopRestart(); break; }
             start_motor();
             break;
 
         case MOTOR_OWNER_MANUAL:
-            /* Protection trips are off keys for manual: leave manual
-             * mode, only the user's press may start it again. */
+            /* Protection trips are off keys for manual: the motor stops and
+             * the device stays in Manual (shown as MANUAL, motor off); only
+             * the user's press starts it again. */
             if (protectionFault)
             {
                 stop_motor();
-                manualActive   = false;
-                manualOverride = false;
-                manualMotorOff = false;
+                manualActive       = false;
+                manualOverride     = false;
+                manualMotorOff     = false;
+                manualPausedByUser = true;
                 ModelHandle_SaveModeState();
             }
             else if (manualMotorOff) stop_motor();
@@ -2292,7 +2570,7 @@ void ModelHandle_Process(void)
         case MOTOR_OWNER_SEMIAUTO:
             if (protectionFault)
             {
-                stop_motor();
+                ModelHandle_StopSemiAuto();    /* fault is an off key: run ends */
             }
             else if (tankFull || semiTankFullHold)
             {
@@ -2311,18 +2589,18 @@ void ModelHandle_Process(void)
 
         case MOTOR_OWNER_COUNTDOWN:
             if (!countdownActive) break;
-            if (now >= cd_deadline) { ModelHandle_StopCountdown(); break; }
+            if ((int32_t)(now - cd_deadline) >= 0) { countdown_finished(); break; }
             countdownDuration = (cd_deadline - now) / 1000UL;
-            if (protectionFault) { ModelHandle_StopCountdown(); break; }
-            if (tankFull || cdTankFullHold)
             {
-                cdTankFullHold = true;
-                stop_motor();
+                /* Time left is saved once a minute (EEPROM wear) so a
+                 * power cut can resume it. */
+                static uint32_t lastCdSave = 0;
+                if ((now - lastCdSave) >= 60000UL) { lastCdSave = now; SaveCountdown(); }
             }
-            else
-            {
-                start_motor();
-            }
+            /* Fault and tank full are off keys: the countdown ends and the
+             * previous mode continues. */
+            if (protectionFault || tankFull) { ModelHandle_StopCountdown(); break; }
+            start_motor();
             break;
 
         case MOTOR_OWNER_TWIST:
