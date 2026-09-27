@@ -40,8 +40,8 @@ void UART_SendStatusPacket(void)
     else if (manualActive)                  mode = "MANUAL";
     else if (semiAutoActive)                mode = "SEMIAUTO";
     else if (timerActive)                   mode = "TIMER";
-    else if (countdownActive)               mode = "COUNTDOWN";
-    else if (twistActive)                   mode = "TWIST";
+    else if (countdownActive || countdownMode) mode = "COUNTDOWN";
+    else if (twistActive)                  mode = "TWIST";
     else if (ModelHandle_IsAutoActive())    mode = "AUTO";
     bool changed = (lastSent.level != level) ||
                    (lastSent.motor != motorStatus) ||
@@ -128,7 +128,7 @@ static void send_settings(void)
 {
     char buf[160];
     snprintf(buf, sizeof(buf),
-        "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;DE=%u;"
+        "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
         "BZ=%u;BF=%u;BE=%u;CD=%u#",
         (unsigned)(ModelHandle_GetGapTime() / 60),
         (unsigned)(ModelHandle_GetDryRunRetryGap() / 60),
@@ -138,6 +138,7 @@ static void send_settings(void)
         (unsigned)ModelHandle_GetOverVolt(),
         (int)ModelHandle_GetOverloadLimit(),
         (int)ModelHandle_GetUnderloadLimit(),
+        (unsigned)ModelHandle_GetPowerRestoreMode(),
         ModelHandle_GetDryRunEnable() ? 1u : 0u,
         (unsigned)ModelHandle_GetBuzzerPumpOnSound(),
         (unsigned)ModelHandle_GetBuzzerTankFullSound(),
@@ -171,8 +172,9 @@ static void send_calibration(void)
     UART_TransmitPacket(buf);
 }
 
-/* App countdown value: minutes (1..180). Larger values are taken as
- * seconds for older app builds that sent seconds. */
+/* App countdown value: minutes. Larger values are taken as seconds for
+ * older app builds that sent seconds; either way the countdown is capped
+ * at COUNTDOWN_MAX_MIN when it starts. */
 static uint32_t countdown_arg_to_seconds(const char *s)
 {
     uint32_t v = s ? (uint32_t)atoi(s) : 0;

@@ -80,9 +80,13 @@ static bool     manualPausedByUser  = false;  /* Manual switched off with the bu
 
 /* Relay2 / Relay3 give a 2 s push to an external starter panel
  * (start push when the motor relay closes, stop push when it opens). */
+/* Starter panel (client GEN-07): every motor start, relay 2 and relay 3
+ * close together for 2 s, 7 s after relay 1 switched ON. No pulse at
+ * stop; if the motor stops before the pulse it is dropped (DEC-12 a). */
+#define STARTER_DELAY_MS 7000UL
 #define STARTER_PULSE_MS 2000UL
-static uint32_t starterOnPulseEnd  = 0;
-static uint32_t starterOffPulseEnd = 0;
+static uint32_t starterPulseStart = 0;   /* 0 = no pulse pending */
+static uint32_t starterPulseEnd   = 0;   /* 0 = relays not closed */
 
 /* Factory defaults (testing report 24-09-26, item 7) */
 #define FACTORY_DRY_TEST_S    120U     /* dry-run test window        */
@@ -92,7 +96,7 @@ static uint32_t starterOffPulseEnd = 0;
 #define FACTORY_UV            180U
 #define FACTORY_OV            280U
 #define FACTORY_OVERLOAD_A    25.0f
-#define FACTORY_PWR_RESTORE   0U       /* always restore (setting removed) */
+#define FACTORY_PWR_RESTORE   0U       /* 0 = ON (restore last mode), 1 = OFF */
 #define FACTORY_COUNTDOWN_MIN 10U
 
 #define GW_START_LEVEL_PERCENT 75      /* ground water may start the motor up to 75% */
@@ -273,8 +277,12 @@ static uint32_t   autoDeadline    = 0;
 #define AUTO_SIG 0xA055
 static bool     twist_on_phase = false;
 static uint32_t bootBlockUntil = 0;
+/* A dry-run stop that ended a mode: Auto may not take the motor over
+ * straight away (the pump would keep running dry) - it waits one
+ * testing gap like its own retry. */
+static uint32_t autoDryHoldUntil = 0;
 static uint32_t twist_deadline = 0;
-static bool semiTankFullHold = false;
+static bool semiTankFullHold = false;   /* Semi run ended (full, dry, fault, max run): motor off, still Semi */
 static bool cdTankFullHold   = false;
 static bool autoBackgroundEnabled = true;
 static bool autoUserLocked        = false;
@@ -293,9 +301,10 @@ static bool     suppressAutoOneCycle  = false;
 static uint32_t autoBootIgnoreUntil   = 0;
 
 /* Auto starts at 50% (client decision Q1-b), also after it has filled
- * the tank. Twist restarts after tank full only at 25%. */
+ * the tank. Twist restarts after tank full below 75%, i.e. at 50%
+ * (client TWS-09). */
 #define AUTO_START_LEVEL_PERCENT   50
-#define AUTO_REFILL_LEVEL_PERCENT  25   /* Twist: after tank full, restart only at <= 25% */
+#define AUTO_REFILL_LEVEL_PERCENT  50   /* Twist: after tank full, restart at <= 50% */
 
 static bool autoFilledLatch = false;    /* Auto filled the tank: ground water alone does not restart it */
 #define AUTO_STOP_LEVEL_PERCENT    100
@@ -337,7 +346,7 @@ typedef struct __attribute__((packed))
 } SystemEEPROMBlock;
 
 #define PROBE_THRESHOLD       0.50f
-#define SENSOR_STABLE_TIME_MS 5000UL
+#define SENSOR_STABLE_TIME_MS 10000UL   /* client GEN-01: level stable 10 s */
 #define EE_ADDR_SYS_BLOCK     0x0000
 #define SYS_SIG               0x5A5B
 
@@ -530,7 +539,7 @@ void ModelHandle_SaveModeState(void)
         modeState.manual_on    = manualActive || manualPausedByUser;
         modeState.semi_on      = semiAutoActive;
         modeState.timer_on     = timerActive;
-        modeState.countdown_on = countdownActive;
+        modeState.countdown_on = countdownActive || countdownMode;
         modeState.twist_on     = twistActive;
         modeState.auto_on      = autoActive || autoPausedByUser;
         modeState.motor_on     = (HAL_GPIO_ReadPin(Relay1_GPIO_Port, Relay1_Pin) == GPIO_PIN_SET);
@@ -554,27 +563,12 @@ static void save_previous_mode(void)
     EEPROM_WriteBuffer(EE_ADDR_PREV_MODE, b, sizeof(b));
 }
 
-static void load_previous_mode(void)
-{
-    uint8_t b[3];
-    EEPROM_ReadBuffer(EE_ADDR_PREV_MODE, b, sizeof(b));
-    uint8_t flags = (b[0] == PREV_MODE_SIG && b[2] == (uint8_t)(b[0] ^ b[1])) ? b[1] : 0;
-    previousManual       = (flags & 0x01) != 0;
-    previousSemi         = (flags & 0x02) != 0;
-    previousCountdown    = (flags & 0x04) != 0;
-    previousAuto         = (flags & 0x08) != 0;
-    previousTimer        = (flags & 0x10) != 0;
-    previousTwist        = (flags & 0x20) != 0;
-    previousAutoPaused   = (flags & 0x40) != 0;
-    previousManualPaused = (flags & 0x80) != 0;
-}
-
 static void backup_current_mode(void)
 {
     previousOwner        = motorOwner;
     previousManual       = manualActive;
     previousSemi         = semiAutoActive;
-    previousCountdown    = countdownActive;
+    previousCountdown    = countdownActive || countdownMode;
     previousAuto         = autoActive;
     previousTimer        = timerActive;
     previousTwist        = twistActive;
@@ -587,7 +581,8 @@ static void restore_previous_mode(void)
 {
     manualActive       = previousManual;
     semiAutoActive     = previousSemi;
-    countdownActive    = previousCountdown;
+    countdownActive    = false;              /* a countdown comes back as Countdown mode, motor off */
+    countdownMode      = previousCountdown;
     autoActive         = previousAuto;
     timerActive        = previousTimer;
     twistActive        = previousTwist;
@@ -599,7 +594,11 @@ static void restore_previous_mode(void)
     else if (previousSemi)
         motorOwner = MOTOR_OWNER_SEMIAUTO;
     else if (previousCountdown)
-        motorOwner = MOTOR_OWNER_COUNTDOWN;
+    {
+        motorOwner = MOTOR_OWNER_NONE;
+        stop_motor();
+        return;
+    }
     else if (previousTimer)
     {
         /* Timer / Twist / Auto decide the motor themselves on their next tick */
@@ -663,7 +662,7 @@ void ModelHandle_LoadModeState(void)
         modeState.power_restore_mode = FACTORY_PWR_RESTORE;
     }
     else memcpy(&modeState, raw, sizeof(modeState));
-    powerRestoreMode = 0;   /* setting removed: last mode is always restored */
+    powerRestoreMode = (modeState.power_restore_mode == 1) ? 1 : 0;
 
     /* The last mode is kept in every power-restore setting; whether it is
      * resumed and whether the motor may run straight away is decided in
@@ -674,6 +673,7 @@ void ModelHandle_LoadModeState(void)
     autoActive      = modeState.auto_on;
     semiAutoActive  = modeState.semi_on;
     countdownActive = false;              /* resumed from its own block */
+    countdownMode   = modeState.countdown_on;   /* at least Countdown mode, motor off */
 }
 
 void ModelHandle_SaveTimerToEEPROM(void)
@@ -816,12 +816,12 @@ void ModelHandle_ProcessDryRun(void)
 
 uint8_t ModelHandle_GetPowerRestoreMode(void)    { return powerRestoreMode; }
 
-/* The Power Restore setting was removed (client decisions Q3/Q4): the last
- * mode is always restored. Kept so old app packets (PR=x) do no harm. */
+/* 0 = ON (restore the last mode), 1 = OFF (power up in Manual, motor off) */
 void ModelHandle_SetPowerRestoreMode(uint8_t mode)
 {
-    (void)mode;
-    powerRestoreMode = 0;
+    if (mode > 1) mode = 0;
+    powerRestoreMode = mode;
+    ModelHandle_SaveModeState();
 }
 
 void ModelHandle_ForcePowerRestoreModeEarly(uint8_t mode)
@@ -1147,18 +1147,24 @@ void ModelHandle_OnPowerUp(void)
     dryState            = DRY_IDLE;
     ModelHandle_LoadBuzzerSettings();
 
-    /* After a power cut the last mode always comes back (client Key
-     * Story; the Power Restore setting was removed - decisions Q3/Q4):
-     *   Auto: motor starts (unless the tank is full).
-     *   Timer: starts if the clock is inside an active slot.
-     *   Twist: continues the period it was in with the time left, if its
-     *          end time has not passed; otherwise off.
-     *   Countdown: motor on for the time left.
-     *   Semi-Auto: runs again (until tank full) if its motor was running.
-     *   Manual: comes back with the motor off (power off is its off key).
-     *   Refill is not a mode: the mode it was started from applies. */
+    /* Power Restore (Device Setup, client DEC-10 a):
+     *   ON  - the last mode comes back:
+     *         Auto: motor starts (unless the tank is full).
+     *         Timer: starts if the clock is inside an active slot.
+     *         Twist: continues the period it was in with the time left, if
+     *                its end time has not passed; otherwise off.
+     *         Countdown: motor on for the time left.
+     *         Semi-Auto: runs again (until tank full) if its motor was on.
+     *         Manual: comes back with the motor off.
+     *         Refill is not a mode: the mode it was started from applies.
+     *   OFF - always power up in Manual with the motor off. */
     bool wasRunning = modeState.motor_on;
-    if (modeState.countdown_on)
+    if (powerRestoreMode != 0)
+    {
+        clear_all_modes();
+        manualActive = true;
+    }
+    else if (modeState.countdown_on)
     {
         ModelHandle_LoadCountdown();       /* resumes with the time left */
     }
@@ -1240,11 +1246,9 @@ static inline void motor_apply(bool on)
         if (!relayNow)
         {
             Relay_Set(1, true);
-            motorOnStartMs = HAL_GetTick();
-            Relay_Set(3, false);                 /* never push start and stop together */
-            starterOffPulseEnd = 0;
-            Relay_Set(2, true);
-            starterOnPulseEnd = motorOnStartMs + STARTER_PULSE_MS;
+            motorOnStartMs    = HAL_GetTick();
+            starterPulseStart = motorOnStartMs + STARTER_DELAY_MS;
+            if (!starterPulseStart) starterPulseStart = 1;
         }
         motorStatus = 1;
     }
@@ -1254,9 +1258,9 @@ static inline void motor_apply(bool on)
         {
             Relay_Set(1, false);
             Relay_Set(2, false);
-            starterOnPulseEnd = 0;
-            Relay_Set(3, true);
-            starterOffPulseEnd = HAL_GetTick() + STARTER_PULSE_MS;
+            Relay_Set(3, false);
+            starterPulseStart = 0;
+            starterPulseEnd   = 0;
         }
         motorStatus = 0;
     }
@@ -1269,15 +1273,22 @@ static inline void motor_apply(bool on)
 static void starter_relays_tick(void)
 {
     uint32_t now = HAL_GetTick();
-    if (starterOnPulseEnd && (int32_t)(now - starterOnPulseEnd) >= 0)
+    if (starterPulseStart && (int32_t)(now - starterPulseStart) >= 0)
+    {
+        starterPulseStart = 0;
+        if (Motor_IsRelayOn())
+        {
+            Relay_Set(2, true);
+            Relay_Set(3, true);
+            starterPulseEnd = now + STARTER_PULSE_MS;
+            if (!starterPulseEnd) starterPulseEnd = 1;
+        }
+    }
+    if (starterPulseEnd && (int32_t)(now - starterPulseEnd) >= 0)
     {
         Relay_Set(2, false);
-        starterOnPulseEnd = 0;
-    }
-    if (starterOffPulseEnd && (int32_t)(now - starterOffPulseEnd) >= 0)
-    {
         Relay_Set(3, false);
-        starterOffPulseEnd = 0;
+        starterPulseEnd = 0;
     }
 }
 
@@ -1328,7 +1339,7 @@ static void check_max_run(void)
     }
     manualOverride = false;
     manualMotorOff = false;
-    semiAutoActive = false;
+    if (semiAutoActive) semiTankFullHold = true;   /* stays Semi-Auto, motor off (PRT-04) */
     ModelHandle_SaveModeState();
 }
 
@@ -1397,7 +1408,7 @@ void ModelHandle_CheckGroundWater(void)
 
 static inline bool isAnyModeActive(void)
 {
-    return (manualActive || semiAutoActive || countdownActive ||
+    return (manualActive || semiAutoActive || countdownActive || countdownMode ||
             twistActive || timerActive || autoActive);
 }
 
@@ -1428,12 +1439,13 @@ void ModelHandle_SoftDryRunHandler(void)
                 {
                     stop_motor();
                     dryState = DRY_FAULT;
+                    autoDryHoldUntil = now + get_test_gap_ms();
 
                     switch (motorOwner)
                     {
                         case MOTOR_OWNER_SEMIAUTO:
-                            semiAutoActive = false; motorOwner = MOTOR_OWNER_NONE;
-                            ModelHandle_SaveModeState(); break;
+                            /* run ends, device stays in Semi-Auto (client SEMI-04) */
+                            semiTankFullHold = true; break;
                         case MOTOR_OWNER_COUNTDOWN:
                             ModelHandle_StopCountdown(); break;
                         case MOTOR_OWNER_TWIST:
@@ -1467,12 +1479,25 @@ void ModelHandle_SoftDryRunHandler(void)
 #define LOAD_INRUSH_IGNORE_MS 3000UL    /* ignore start-up current surge  */
 #define VOLT_RECOVER_MS       10000UL   /* supply back in range this long */
 
+#define OVERLOAD_RESTARTS_PER_DAY 3
+static uint8_t  overloadTrips  = 0;      /* over-load stops today           */
+static uint8_t  overloadDay    = 0;      /* RTC day of month they belong to */
+static bool     overloadLocked = false;  /* 4th trip: off until a restart   */
 static uint32_t loadBadSince  = 0;
 static uint32_t loadLockUntil = 0;
 static uint32_t voltBadSince  = 0;
 static uint32_t voltGoodSince = 0;
 
-/* Voltage is watched all the time, so a bad supply also blocks a start;
+#define MAINS_LOST_V          50.0f     /* below this the mains is gone  */
+#define VOLT_SETTLE_MS        8000UL    /* after boot: reading settles    */
+static bool     mainsLost      = true;  /* until the first good reading  */
+static uint32_t mainsBackSince = 0;
+
+/* Mains gone (not a voltage fault): the motor is held off, but no mode is
+ * ended and nothing is saved - the MCU may die any moment on the supply's
+ * hold-up, and after the power cut the last mode must be restored. The
+ * hold lasts until the mains is back for 10 s.
+ * Voltage is watched all the time, so a bad supply also blocks a start;
  * the fault clears once the supply is back in range for 10 s.
  * Over/under current is watched while running (after the inrush); it
  * trips after 3 s, and the motor may start again after the testing gap. */
@@ -1483,8 +1508,23 @@ void ModelHandle_CheckLoadFault(void)
     float    I       = g_currentA;
     float    V       = g_voltageV;
 
-    bool vBad = (sys.uv_limit && V < sys.uv_limit) ||
-                (sys.ov_limit && V > sys.ov_limit);
+    if (V < MAINS_LOST_V)
+    {
+        mainsLost      = true;
+        mainsBackSince = 0;
+    }
+    else if (mainsLost)
+    {
+        if (!mainsBackSince) mainsBackSince = now ? now : 1;
+        if ((now - mainsBackSince) >= VOLT_RECOVER_MS) mainsLost = false;
+    }
+
+    /* At a real power-on the sensor's zero is learnt while the supply rails
+     * are still rising, so the first seconds read wrong - no voltage fault
+     * from them (the motor is held off by the mains hold anyway). */
+    bool vBad = (now >= VOLT_SETTLE_MS) && (V >= MAINS_LOST_V) &&
+                ((sys.uv_limit && V < sys.uv_limit) ||
+                 (sys.ov_limit && V > sys.ov_limit));
     if (vBad)
     {
         voltGoodSince = 0;
@@ -1525,11 +1565,20 @@ void ModelHandle_CheckLoadFault(void)
             stop_motor();
             loadLockUntil = now + get_test_gap_ms();
             loadBadSince  = 0;
+            if (over)
+            {
+                /* Client PRT-02: after an over-load stop the motor may be
+                 * restarted automatically at most 3 times a day; the next
+                 * trip keeps it off (OVERLD) until the device is restarted.
+                 * The count starts again each day (DEC-15, assumed). */
+                if (time.dom != overloadDay) { overloadDay = time.dom; overloadTrips = 0; }
+                if (++overloadTrips > OVERLOAD_RESTARTS_PER_DAY) overloadLocked = true;
+            }
         }
     }
     else loadBadSince = 0;
 
-    if ((senseOverLoad || senseUnderLoad) && !motorOn &&
+    if ((senseOverLoad || senseUnderLoad) && !motorOn && !overloadLocked &&
         (int32_t)(now - loadLockUntil) >= 0)
     {
         senseOverLoad  = false;
@@ -1826,7 +1875,8 @@ void ModelHandle_StartAuto(uint16_t gap_s, uint16_t maxrun_min, uint8_t retry)
     motorOwner       = MOTOR_OWNER_AUTO;
     dryState         = DRY_IDLE;
 
-    start_motor();
+    /* No start_motor() here: auto_tick() decides from the level on its
+     * next pass (starting here gave a short ON blip at 75%/100%). */
 
     ModelHandle_SaveModeState();
 }
@@ -1868,11 +1918,15 @@ void ModelHandle_LoadAutoSettings(void)
 
 static void auto_mode_background_control(void)
 {
+    /* Auto never starts by itself (client AUTO-02 / DEC-03 b): only
+     * button 2 or the app start it. */
+    if (!autoActive) return;
     if (!autoBackgroundEnabled) return;
     if (autoUserLocked) return;
     uint32_t now = HAL_GetTick();
     if (now < autoBootIgnoreUntil) return;
     if (now < bootBlockUntil) return;
+    if (!autoActive && (int32_t)(now - autoDryHoldUntil) < 0) return;
     if (manualActive || semiAutoActive || timerActive || countdownActive || twistActive) return;
     if (manualPausedByUser || restartActive) return;   /* still Manual (motor off) / Refill running */
 
@@ -2081,11 +2135,8 @@ static void auto_tick(void)
 void ModelHandle_StartCountdown(uint32_t seconds)
 {
     if (seconds < 60)    seconds = 60;
-    if (seconds > 10800) seconds = 10800;
+    if (seconds > COUNTDOWN_MAX_MIN * 60UL) seconds = COUNTDOWN_MAX_MIN * 60UL;
 
-    /* Remember the running mode; it continues when the countdown ends.
-     * (Restarting a running countdown keeps the original one.) */
-    if (!countdownActive) backup_current_mode();
     clear_all_modes();
 
     senseMaxRunReached = false;
@@ -2106,8 +2157,12 @@ void ModelHandle_StartCountdown(uint32_t seconds)
 
 void ModelHandle_StopCountdown(void)
 {
+    /* However the countdown ends (time over, user stop, tank full, dry
+     * run, fault, max run) the motor stops and the device stays in
+     * Countdown mode (client CD-02/03/05/06). The user picks another mode
+     * or presses button 4 again to run the last selected time. */
     countdownActive   = false;
-    countdownMode     = false;
+    countdownMode     = true;
     cd_deadline       = 0;
     countdownDuration = 0;
     cdTankFullHold    = false;
@@ -2118,12 +2173,6 @@ void ModelHandle_StopCountdown(void)
 
     stop_motor();
     SaveCountdown();
-
-    /* However it ends (time over, user stop, fault), the mode that was
-     * running before the countdown continues. Never "return" into a
-     * countdown (possible if a Refill was started during it). */
-    previousCountdown = false;
-    restore_previous_mode();
     ModelHandle_SaveModeState();
 }
 
@@ -2140,7 +2189,7 @@ uint16_t ModelHandle_GetCountdownDefaultMin(void) { return cdDefaultMin; }
 void ModelHandle_SetCountdownDefaultMin(uint16_t minutes)
 {
     if (minutes < 1)   minutes = 1;
-    if (minutes > 180) minutes = 180;
+    if (minutes > COUNTDOWN_MAX_MIN) minutes = COUNTDOWN_MAX_MIN;
     cdDefaultMin = minutes;
     uint8_t b[4] = { CD_DEFAULT_SIG, (uint8_t)minutes, (uint8_t)(minutes >> 8), 0 };
     b[3] = (uint8_t)(b[0] ^ b[1] ^ b[2]);
@@ -2156,6 +2205,11 @@ void ModelHandle_LoadCountdownDefault(void)
         minutes < 1 || minutes > 180)
     {
         ModelHandle_SetCountdownDefaultMin(FACTORY_COUNTDOWN_MIN);
+        return;
+    }
+    if (minutes > COUNTDOWN_MAX_MIN)     /* saved before the 15 min limit */
+    {
+        ModelHandle_SetCountdownDefaultMin(COUNTDOWN_MAX_MIN);
         return;
     }
     cdDefaultMin = minutes;
@@ -2192,7 +2246,7 @@ void ModelHandle_LoadCountdown(void)
     EEPROM_ReadBuffer(EE_ADDR_COUNTDOWN_BLOCK, (uint8_t*)&b, sizeof(b));
     if (b.sig != CD_SIGNATURE) return;
     if (CD_CRC((uint8_t*)&b, sizeof(b) - 2) != b.crc) return;
-    if (b.active && b.remaining > 0 && b.remaining <= 10800UL)
+    if (b.active && b.remaining > 0 && b.remaining <= COUNTDOWN_MAX_MIN * 60UL)
     {
         countdownActive   = true;
         countdownMode     = true;
@@ -2200,11 +2254,10 @@ void ModelHandle_LoadCountdown(void)
         cd_deadline       = bootStartBlockUntil + b.remaining * 1000UL;
         cdTankFullHold    = false;
         motorOwner        = MOTOR_OWNER_COUNTDOWN;
-        load_previous_mode();              /* mode to return to at the end */
     }
 }
 
-/* Countdown time is over (StopCountdown returns to the previous mode) */
+/* Countdown time is over (the device stays in Countdown mode) */
 static void countdown_finished(void)
 {
     ModelHandle_StopCountdown();
@@ -2355,7 +2408,7 @@ static void twist_tick(void)
     ModelHandle_CheckDryRun();
 
     /* Tank full: twist pauses and restarts only once the level is down
-     * to 25% (same rule as Auto). */
+     * below 75% (50%). */
     uint8_t level = get_tank_level_percent();
     if (level >= AUTO_STOP_LEVEL_PERCENT)        twistFilledLatch = true;
     else if (level <= AUTO_REFILL_LEVEL_PERCENT) twistFilledLatch = false;
@@ -2433,6 +2486,7 @@ void ModelHandle_Process(void)
     ModelHandle_CheckDryRun();
     ModelHandle_CheckLoadFault();
     check_max_run();
+    if (mainsLost) { stop_motor(); return; }   /* modes stay as they are */
     bool protectionFault = senseOverLoad || senseUnderLoad || senseOverUnderVolt || senseMaxRunReached;
     bool tankFull        = isTankFull();
 
@@ -2526,7 +2580,10 @@ void ModelHandle_Process(void)
         case MOTOR_OWNER_SEMIAUTO:
             if (protectionFault)
             {
-                ModelHandle_StopSemiAuto();    /* fault is an off key: run ends */
+                /* Fault / max run: the run ends, the device stays in
+                 * Semi-Auto with the motor off (client SEMI-05, PRT-04) */
+                semiTankFullHold = true;
+                stop_motor();
             }
             else if (tankFull || semiTankFullHold)
             {
@@ -2656,7 +2713,7 @@ void ModelHandle_SaveCurrentStateToEEPROM(void)
     if      (manualActive)    s.mode = 1;
     else if (semiAutoActive)  s.mode = 2;
     else if (timerActive)     s.mode = 3;
-    else if (countdownActive) s.mode = 4;
+    else if (countdownActive || countdownMode) s.mode = 4;
     else if (twistActive)     s.mode = 5;
     else if (autoActive)      s.mode = 6;
     RTC_SavePersistentState(&s);

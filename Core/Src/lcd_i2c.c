@@ -82,6 +82,21 @@ void lcd_init(void)
     lcd_send_cmd(0x0C);
     HAL_Delay(5);
 }
+/* Bring the controller back into 4-bit mode from any state (noise, or a
+ * power-on while its supply was still rising) without clearing the text,
+ * so it can be done often without a flicker. */
+void lcd_resync(void)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        lcd_write4(0x30, 0);
+        HAL_Delay(5);
+    }
+    lcd_write4(0x20, 0);
+    lcd_send_cmd(0x28);
+    lcd_send_cmd(0x06);
+    lcd_send_cmd(0x0C);
+}
 void lcd_self_test(void)
 {
     lcd_init();

@@ -143,6 +143,7 @@ const TimerSlot* ModelHandle_GetTimerSlots(void);
 
 void     ModelHandle_StartCountdown(uint32_t seconds);
 void     ModelHandle_StopCountdown(void);
+#define  COUNTDOWN_MAX_MIN 15U   /* client: a countdown is never longer */
 uint16_t ModelHandle_GetCountdownDefaultMin(void);
 void     ModelHandle_SetCountdownDefaultMin(uint16_t minutes);
 void     ModelHandle_LoadCountdownDefault(void);

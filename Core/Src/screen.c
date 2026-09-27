@@ -176,8 +176,9 @@ extern DryFSMState ModelHandle_GetDryState(void);
 extern bool      ModelHandle_GetDryRunEnable(void);
 extern uint16_t  ModelHandle_GetDryRunRetryGap(void);
 
-static const char* const main_menu[] = { "Add New Device", "Device Setup", "Reset To Default", "Twist Mode" };
-#define MAIN_MENU_COUNT 4
+/* Twist is started / stopped from the app only (client BTN-05) */
+static const char* const main_menu[] = { "Add New Device", "Device Setup", "Reset To Default" };
+#define MAIN_MENU_COUNT 3
 
 static uint8_t menu_idx      = 0;
 static uint8_t menu_view_top = 0;
@@ -185,7 +186,7 @@ static uint8_t menu_view_top = 0;
 static const char* const devset_menu_items[] = {
     "Dry Run En","Test Time","Retry Gap","Low Volt","High Volt",
     "Over Load","Under Load","Max Run","Set Date","Set Time","Set Day",
-    "Factory Reset","Back"      /* Power Restore removed: last mode is always restored */
+    "Power Restore","Factory Reset","Back"
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
 
@@ -317,6 +318,7 @@ static void show_dash(void)
     else if (timerActive)                   mode = "TIMER";
     else if (autoActive)        mode = motorOn ? "AUTO   " : "AUTO W";
     else if (countdownActive)   mode = motorOn ? "COUNT  " : "CD WAIT";
+    else if (countdownMode)     mode = "COUNT  ";   /* Countdown mode, run ended */
     else if (twistActive)       mode = motorOn ? "TWIST  " : "TWIST W";
     else if (semiAutoActive)    mode = motorOn ? "SEMI   " : "SEMI";
     else if (manualActive)      mode = "MANUAL ";
@@ -335,7 +337,7 @@ static void show_dash(void)
         snprintf(l0, sizeof(l0), "%-7sM:%-3s%3d%%", mode, motorOn ? "ON " : "OFF", tankPercent);
         if (tankFull)
             snprintf(l1, sizeof(l1), "TANK FULL %02u:%02u", time.hour, time.min);
-        else if (!senseDryRun)
+        else if (dryEnabled && !senseDryRun)   /* DRY only when Dry Run is enabled */
             snprintf(l1, sizeof(l1), "G.W:%-3s DRY%02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
         else
             snprintf(l1, sizeof(l1), "G.W:%-3s    %02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
@@ -424,6 +426,7 @@ static void show_devset_menu(void)
             case 5: if (edit_settings_ol > 0)       *star = '*'; break;
             case 6: if (edit_settings_ul > 0)       *star = '*'; break;
             case 7: if (edit_settings_maxrun > 0)   *star = '*'; break;
+            case 11: if (edit_settings_pwrrest == 0) *star = '*'; break;   /* 0 = ON */
             default: break;
         }
     }
@@ -793,7 +796,6 @@ static void menu_select(void)
                 ui = UI_ADD_DEVICE_MENU; break;
             case 1: start_settings_edit_flow(); return;
             case 2: reset_confirm_yes = false; ui = UI_RESET_CONFIRM; break;
-            case 3: ui = UI_TWIST; break;
         }
         screenNeedsRefresh = true; return;
     }
@@ -814,6 +816,9 @@ static void menu_select(void)
             case 9:  ui = UI_DEVSET_EDIT_TIME; break;
             case 10: ui = UI_DEVSET_EDIT_DAY;  break;
             case 11:
+                edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
+                ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
+            case 12:
                 edit_settings_factory_yes ^= 1;
                 if (edit_settings_factory_yes)
                 {
@@ -831,7 +836,7 @@ static void menu_select(void)
                     clear_sticky_mode_flags(); ui = UI_DASH;
                 }
                 break;
-            case 12: ui = UI_MENU; break;
+            case 13: ui = UI_MENU; break;
         }
         screenNeedsRefresh = true; return;
     }
@@ -891,8 +896,8 @@ void increase_edit_value(uint8_t step)
         case UI_TWIST_EDIT_OFF_H: edit_twist_off_hh+=step; if(edit_twist_off_hh>23)edit_twist_off_hh=23; break;
         case UI_TWIST_EDIT_OFF_M: edit_twist_off_mm+=step; if(edit_twist_off_mm>59)edit_twist_off_mm=59; break;
         case UI_COUNTDOWN_EDIT_MIN:
-            if(edit_countdown_min<180)edit_countdown_min+=1;
-            if(edit_countdown_min>180)edit_countdown_min=180; break;
+            if(edit_countdown_min<COUNTDOWN_MAX_MIN)edit_countdown_min+=1;
+            if(edit_countdown_min>COUNTDOWN_MAX_MIN)edit_countdown_min=COUNTDOWN_MAX_MIN; break;
         case UI_SETTINGS_GAP:
             edit_settings_gap_s+=step; if(edit_settings_gap_s>15)edit_settings_gap_s=15; break;
         case UI_SETTINGS_RETRY:
@@ -1441,7 +1446,7 @@ void Screen_HandleSwitches(void)
     {
         if (b == BTN_DOWN || b == BTN_DOWN_LONG)
         {
-            if (edit_countdown_min < 180) edit_countdown_min++;
+            if (edit_countdown_min < COUNTDOWN_MAX_MIN) edit_countdown_min++;
             cd_edit_repeat_time = HAL_GetTick();
             screenNeedsRefresh = true;
             return;
@@ -1504,6 +1509,25 @@ void Screen_HandleSwitches(void)
 void Screen_Update(void)
 {
     uint32_t now = HAL_GetTick();
+
+    /* The relay switching the motor, or a power-on while the LCD supply is
+     * still rising, can knock the LCD out of 4-bit sync (blank or garbage
+     * screen). Re-sync it 0.5 s after every motor on/off and every 3 s,
+     * then redraw. */
+    {
+        static bool     lastMotor    = false;
+        static uint32_t resyncAt     = 0;
+        static uint32_t lastResyncMs = 0;
+        bool motor = Motor_GetStatus();
+        if (motor != lastMotor) { lastMotor = motor; resyncAt = now + 500UL; if (!resyncAt) resyncAt = 1; }
+        if ((resyncAt && (int32_t)(now - resyncAt) >= 0) || (now - lastResyncMs) >= 3000UL)
+        {
+            resyncAt     = 0;
+            lastResyncMs = now;
+            lcd_resync();
+            screenNeedsRefresh = true;     /* lines are rewritten in full */
+        }
+    }
 
     if (ui >= UI_MAX_)
     {

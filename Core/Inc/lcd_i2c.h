@@ -30,6 +30,7 @@ void lcd_send_string(char *str);
 void lcd_backlight_on(void);
 void lcd_backlight_off(void);
 void lcd_self_test(void);
+void lcd_resync(void);
 
 #ifdef __cplusplus
 }
