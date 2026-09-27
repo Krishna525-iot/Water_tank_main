@@ -1201,7 +1201,9 @@ void Screen_HandleSwitches(void)
                 break;
 
             case BTN_UP_LONG:
-                if (!semiAutoActive)
+                /* Not in Semi-Auto, or its run has ended (motor off): a new
+                 * Semi-Auto run (DEC-13). While it runs: Semi-Auto off. */
+                if (!semiAutoActive || ModelHandle_IsSemiRunEnded())
                 {
                     ModelHandle_StartSemiAuto();
                     sticky_set_semi();

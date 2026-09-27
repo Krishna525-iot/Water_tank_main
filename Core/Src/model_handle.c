@@ -96,7 +96,7 @@ static uint32_t starterPulseEnd   = 0;   /* 0 = relays not closed */
 #define FACTORY_UV            180U
 #define FACTORY_OV            280U
 #define FACTORY_OVERLOAD_A    25.0f
-#define FACTORY_PWR_RESTORE   0U       /* 0 = ON (restore last mode), 1 = OFF */
+#define FACTORY_PWR_RESTORE   1U       /* 0 = ON (restore last mode), 1 = OFF (PWR-01 default) */
 #define FACTORY_COUNTDOWN_MIN 10U
 
 #define GW_START_LEVEL_PERCENT 75      /* ground water may start the motor up to 75% */
@@ -282,6 +282,9 @@ static uint32_t bootBlockUntil = 0;
  * testing gap like its own retry. */
 static uint32_t autoDryHoldUntil = 0;
 static uint32_t twist_deadline = 0;
+static uint8_t autoExhaustLevel = 0;    /* level when Auto's dry retries ran out */
+#define TIMER_REFILL_LEVEL_PERCENT 50
+static bool timerFilledLatch = false;   /* slot filled the tank: wait for 50% (DEC-01) */
 static bool semiTankFullHold = false;   /* Semi run ended (full, dry, fault, max run): motor off, still Semi */
 static bool cdTankFullHold   = false;
 static bool autoBackgroundEnabled = true;
@@ -592,7 +595,14 @@ static void restore_previous_mode(void)
     if (previousManual)
         motorOwner = MOTOR_OWNER_MANUAL;
     else if (previousSemi)
-        motorOwner = MOTOR_OWNER_SEMIAUTO;
+    {
+        /* Refill from a finished Semi-Auto run: back to SEMI-AUTO, motor
+         * off (DEC-13). Refill cannot start while Semi-Auto runs. */
+        motorOwner       = MOTOR_OWNER_SEMIAUTO;
+        semiTankFullHold = true;
+        stop_motor();
+        return;
+    }
     else if (previousCountdown)
     {
         motorOwner = MOTOR_OWNER_NONE;
@@ -787,6 +797,7 @@ static bool isTankFull(void)
 void ModelHandle_StartRestart(void)
 {
     if (isTankFull()) return;
+    if (semiAutoActive && !semiTankFullHold) return;   /* Semi-Auto running: Refill does nothing (SEMI-03) */
 
     backup_current_mode();
     clear_all_modes();
@@ -928,6 +939,7 @@ void ModelHandle_Button3_SinglePress(void)
         clear_all_modes();
         timerActive        = true;
         motorOwner         = MOTOR_OWNER_TIMER;
+        timerFilledLatch   = false;
         timerState         = TIMER_RUN_TEST;
         timerStateDeadline = 0;
         timer_retry_count  = 0;
@@ -1569,14 +1581,23 @@ void ModelHandle_CheckLoadFault(void)
             {
                 /* Client PRT-02: after an over-load stop the motor may be
                  * restarted automatically at most 3 times a day; the next
-                 * trip keeps it off (OVERLD) until the device is restarted.
-                 * The count starts again each day (DEC-15, assumed). */
+                 * trip keeps it off (OVERLD) until the device is restarted
+                 * or the date changes (DEC-15). */
                 if (time.dom != overloadDay) { overloadDay = time.dom; overloadTrips = 0; }
                 if (++overloadTrips > OVERLOAD_RESTARTS_PER_DAY) overloadLocked = true;
             }
         }
     }
     else loadBadSince = 0;
+
+    /* The 3 restart credits come back at a power restart (RAM is cleared)
+     * or when the calendar date changes (DEC-15). */
+    if (overloadLocked && time.dom != overloadDay)
+    {
+        overloadLocked = false;
+        overloadTrips  = 0;
+        overloadDay    = time.dom;
+    }
 
     if ((senseOverLoad || senseUnderLoad) && !motorOn && !overloadLocked &&
         (int32_t)(now - loadLockUntil) >= 0)
@@ -1699,6 +1720,7 @@ void ModelHandle_ProcessTimerSlots(void)
         timer_retry_count   = 0;
         timerGroundWaterRun = false;
         powerRestoreHold    = false;   /* next slot start is a fresh on key */
+        timerFilledLatch    = false;
         return;
     }
     if (isTankFull())
@@ -1709,7 +1731,16 @@ void ModelHandle_ProcessTimerSlots(void)
         dryState            = DRY_IDLE;
         timer_retry_count   = 0;
         timerGroundWaterRun = false;
+        timerFilledLatch    = true;
         return;
+    }
+    /* After tank full the slot starts the motor again only below 75%
+     * (probes read 50%) - client DEC-01. Fresh ground water still does. */
+    if (timerFilledLatch)
+    {
+        if (get_tank_level_percent() <= TIMER_REFILL_LEVEL_PERCENT) timerFilledLatch = false;
+        else if (!gwRising) { stop_motor(); return; }
+        else timerFilledLatch = false;
     }
     if (senseOverLoad || senseUnderLoad || senseOverUnderVolt ||
         senseMaxRunReached)
@@ -1828,6 +1859,9 @@ void ModelHandle_StartSemiAuto(void)
     start_motor();
     ModelHandle_SaveModeState();
 }
+
+/* Semi-Auto shown with its run ended (tank full, dry run, fault, max run) */
+bool ModelHandle_IsSemiRunEnded(void) { return semiAutoActive && semiTankFullHold; }
 
 void ModelHandle_StopSemiAuto(void)
 {
@@ -2085,6 +2119,7 @@ static void auto_tick(void)
                 autoState     = AUTO_DRY_CHECK;
                 stateDeadline = retries_exhausted(auto_retry_count)
                                 ? 0 : now + get_test_gap_ms();
+                autoExhaustLevel = level;
                 dryState      = DRY_FAULT;
             }
             break;
@@ -2093,9 +2128,20 @@ static void auto_tick(void)
         case AUTO_DRY_CHECK:
         {
             /* Testing gap: motor off, then test again unconditionally.
-             * Deadline 0 = retries used up, wait for next on key. */
+             * Deadline 0 = retries used up, wait for the next on key:
+             * ground water (above), Refill, power restore, or the level
+             * going one step lower than when they ran out (DEC-04). */
             stop_motor();
-            if (stateDeadline == 0) break;
+            if (stateDeadline == 0)
+            {
+                if (level < autoExhaustLevel)
+                {
+                    auto_retry_count = 0;
+                    autoState        = AUTO_ON_WAIT;
+                    dryState         = DRY_IDLE;
+                }
+                break;
+            }
             if ((int32_t)(now - stateDeadline) < 0) break;
 
             autoState     = AUTO_ON_WAIT;

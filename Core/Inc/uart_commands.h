@@ -4,5 +4,6 @@
 
 void UART_HandleCommand(const char *packet);
 void UART_SendStatusPacket(void);
+void UART_SendLivePacket(void);
 void UART_SendDryAlert(void);
 void UART_StatusTask(void);

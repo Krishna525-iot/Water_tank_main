@@ -59,6 +59,19 @@ void UART_SendStatusPacket(void)
     UART_TransmitPacket(buf);
 }
 
+/* Live data for the app, sent every second (client DEC-16: other data
+ * refreshes every 1 s): @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss># */
+extern volatile bool groundWater;
+void UART_SendLivePacket(void)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%02u:%02u:%02u#",
+             (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
+             groundWater ? 1u : 0u, senseDryRun ? 1u : 0u,
+             time.hour, time.min, time.sec);
+    UART_TransmitPacket(buf);
+}
+
 static char* next_token(char **ctx)
 {
     if (!ctx || !*ctx) return NULL;

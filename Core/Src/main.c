@@ -20,6 +20,7 @@
 #include "lora.h"
 #include "rf.h"
 #include "uart.h"
+#include "uart_commands.h"
 #include "model_handle.h"
 #include "screen.h"
 #include "led.h"
@@ -308,6 +309,12 @@ int main(void)
         Screen_HandleSwitches();
         Screen_Update();
         LED_Task();
+
+        /* Live data for the app every second (voltage, current, G.W, dry, time) */
+        {
+            static uint32_t lastLive = 0;
+            if ((now - lastLive) >= 1000u) { lastLive = now; UART_SendLivePacket(); }
+        }
 
         /* Step 10: periodic status */
         if ((now - lastStatusUpdate) >= STATUS_UPDATE_INTERVAL)
