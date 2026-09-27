@@ -10,7 +10,7 @@ extern UART_HandleTypeDef huart1;
 /* Received packets are queued: the web module often sends two commands
  * back to back (e.g. "@AUTO:OFF#@TIMER:ON#"); with a single buffer the
  * second one arrived while the first was still unread and was lost. */
-#define UART_RX_QUEUE_LEN 4
+#define UART_RX_QUEUE_LEN 12   /* timer page sends 5 slots + TIMER:ON in one burst */
 
 static uint8_t  rxByte;
 static char     rxBuffer[UART_RX_BUFFER_SIZE];
