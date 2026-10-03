@@ -326,6 +326,8 @@ static uint32_t autoBootIgnoreUntil   = 0;
 #define AUTO_REFILL_LEVEL_PERCENT  50   /* Twist: after tank full, restart at <= 50% */
 
 static bool autoFilledLatch = false;    /* Auto filled the tank: ground water alone does not restart it */
+#define AUTO_DRY_LOST_MS 5000UL         /* Dry Run on: water gone this long mid-run = motor OFF */
+static uint32_t autoDryLostSince = 0;
 #define AUTO_STOP_LEVEL_PERCENT    100
 
 
@@ -2149,10 +2151,33 @@ static void auto_tick(void)
         {
             start_motor();
 
-            if (!dryEn || stateDeadline == 0)
+            if (!dryEn)
             {
-                stateDeadline = 0;
-                dryState      = DRY_IDLE;
+                /* Dry Run disabled: the dry sensor is not used */
+                stateDeadline    = 0;
+                dryState         = DRY_IDLE;
+                autoDryLostSince = 0;
+                break;
+            }
+            if (stateDeadline == 0)
+            {
+                /* Running after the water was confirmed (or Dry Run was
+                 * switched on during the run). Client 03-10: with Dry Run
+                 * enabled, water lost for 5 s is an off key too - motor
+                 * OFF, testing gap, then a new run with a new test (the
+                 * gap ending is an on key, AUTO-13, whatever the level). */
+                dryState = DRY_IDLE;
+                if (senseDryRun || !motorOn) { autoDryLostSince = 0; break; }
+                if (!autoDryLostSince) autoDryLostSince = now ? now : 1;
+                if ((now - autoDryLostSince) < AUTO_DRY_LOST_MS) break;
+                autoDryLostSince    = 0;
+                stop_motor();
+                autoState           = AUTO_DRY_CHECK;
+                stateDeadline       = now + get_test_gap_ms();
+                if (stateDeadline == 0) stateDeadline = 1;
+                autoRestoreOverride = true;
+                autoGroundWaterRun  = false;
+                dryState            = DRY_FAULT;
                 break;
             }
             if ((int32_t)(now - stateDeadline) < 0) break;
