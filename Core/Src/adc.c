@@ -473,3 +473,8 @@ const char *ADC_GetActiveSourceString(void)
         default:            return "LOCAL";
     }
 }
+
+bool ADC_LevelFromWireless(void)
+{
+    return s_wlHaveData;
+}

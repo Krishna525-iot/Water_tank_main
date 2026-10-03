@@ -193,9 +193,16 @@ float ZMPT_ReadVoltageRMS(void)
 
     float new_offset = sum_dc / ZMPT_RMS_SAMPLES;
 
+    /* RMS about this window's own mean: the boot offset comes from 300
+       samples (< one 50 Hz cycle), so it can be far off and made a false
+       VOLTAGE ERROR after power-on. Removing (mean - offset)^2 makes the
+       reading independent of the stored offset. */
+    float dc_err = new_offset - zmpt_offset;
+    float ms     = sum_sq / ZMPT_RMS_SAMPLES - dc_err * dc_err;
+
     zmpt_offset = (zmpt_offset * 0.90f) + (new_offset * 0.10f);
 
-    adc_rms = sqrtf(sum_sq / ZMPT_RMS_SAMPLES);
+    adc_rms = (ms > 0.0f) ? sqrtf(ms) : 0.0f;
 
     float Vrms = adc_rms * zmpt_factor;
 

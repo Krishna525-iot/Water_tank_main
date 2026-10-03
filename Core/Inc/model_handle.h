@@ -54,6 +54,7 @@ extern volatile bool autoActive;
 extern volatile uint16_t auto_retry_counter;
 extern volatile bool countdownMode;
 extern volatile uint32_t countdownDuration;
+extern volatile bool     countdownPaused;   /* fault paused the countdown (CD-05/06) */
 extern TwistSettings  twistSettings;
 extern volatile bool senseDryRun;
 extern volatile bool senseOverLoad;
@@ -101,6 +102,7 @@ uint8_t  ModelHandle_GetBuzzerPumpOnSound(void);
 uint8_t  ModelHandle_GetBuzzerTankFullSound(void);
 uint8_t  ModelHandle_GetBuzzerTankEmptySound(void);
 void ModelHandle_Button3_SinglePress(void);
+void ModelHandle_Button4_SinglePress(void);
 float    ModelHandle_GetUnderloadLimit(void);
 void ModelHandle_SetUserSettings(uint32_t gap_seconds,
                                  uint8_t  retry,

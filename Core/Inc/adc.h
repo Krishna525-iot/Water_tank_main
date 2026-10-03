@@ -3,6 +3,7 @@
 
 #include "stm32f1xx_hal.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 #define ADC_CHANNEL_COUNT 6
 
@@ -23,5 +24,8 @@ typedef struct {
 void ADC_Init(ADC_HandleTypeDef* hadc);
 void ADC_ReadAllChannels(ADC_HandleTypeDef* hadc, ADC_Data* data);
 uint8_t ADC_CheckMaxVoltage(ADC_Data* data, float threshold);
+/* true: the tank level comes from a wireless transmitter (live or held);
+ * the TX already applies the 10 s stable time (GEN-01) */
+bool ADC_LevelFromWireless(void);
 
 #endif

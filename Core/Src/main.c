@@ -73,7 +73,7 @@ RfRxData_t g_rfRxData = {0};
 
 /* ── Wireless mode — FILE-SCOPE GLOBAL ──────────────────────────────── *
  *  adc.c reads it via `extern uint8_t g_wireless_mode;`.                 */
-uint8_t g_wireless_mode = WIRELESS_MODE_RF433;   /* ← CHANGE HERE */
+uint8_t g_wireless_mode = WIRELESS_MODE_LORA;   /* ← CHANGE HERE */
 
 /* ── Status timer ───────────────────────────────────────────────────── */
 static uint32_t lastStatusUpdate = 0u;

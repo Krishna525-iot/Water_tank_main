@@ -148,6 +148,15 @@ static uint32_t s_lastPeerTick      = 0;
 #define REG_DETECTION_THRESHOLD 0x37   /* 0x0A for SF7–12, 0x0C for SF6        */
 #define REG_SYNC_WORD           0x39
 #define REG_VERSION             0x42
+/* RegVersion reads at init (expect 0x12), kept for SWD diagnostics */
+volatile uint8_t g_loraVer[3] = {0xEE, 0xEE, 0xEE};
+/* Live radio state for SWD: [0]=DIO0 [1]=IRQ flags [2]=OpMode (every 2 s) */
+volatile uint8_t  g_loraDbg[3] = {0};
+volatile uint32_t g_loraCrcErrors = 0;   /* packets dropped on CRC error */
+/* Range test over SWD: last good packet's RSSI (dBm) and SNR (x0.25 dB) */
+volatile int16_t  g_loraLastRssi  = 0;
+volatile int8_t   g_loraLastSnr   = 0;
+volatile uint32_t g_loraReinits   = 0;   /* radio re-inits after a lost setup */
 
 /* ── RegOpMode values for 433 MHz (LowFrequencyModeOn = bit3 = 1) ──── *
  *                                                                       *
@@ -255,6 +264,7 @@ static uint8_t LoRa_PollPacket(uint8_t *buffer, int16_t *rssi_out)
 
     if (irq & 0x20u)            /* CRC error */
     {
+        g_loraCrcErrors++;
         LoRa_WriteReg(REG_IRQ_FLAGS, 0xFF);
         return 0;
     }
@@ -676,6 +686,7 @@ void LoRa_Init(void)
     uint8_t ver2 = LoRa_ReadReg(REG_VERSION); HAL_Delay(2);
     uint8_t ver3 = LoRa_ReadReg(REG_VERSION);
     uint8_t ver  = ver3;
+    g_loraVer[0] = ver1; g_loraVer[1] = ver2; g_loraVer[2] = ver3;   /* read over SWD */
 
     snprintf(dbg, sizeof(dbg),
              "[LORA RX] RegVersion reads: 0x%02X 0x%02X 0x%02X",
@@ -715,13 +726,13 @@ void LoRa_Init(void)
     LoRa_WriteReg(0x21, LORA_PREAMBLE_LSB);
 
     /* ── PA / OCP / DAC ────────────────────────────────────────────── */
-    LoRa_WriteReg(0x09, LORA_REG_PA_CONFIG);     /* PA_BOOST, Pout=14dBm */
-    LoRa_WriteReg(0x0B, LORA_REG_OCP);           /* OCP ~100 mA          */
+    LoRa_WriteReg(0x09, LORA_REG_PA_CONFIG);     /* PA_BOOST, see lora.h */
+    LoRa_WriteReg(0x0B, LORA_REG_OCP);           /* OCP, see lora.h      */
     LoRa_WriteReg(0x4D, LORA_REG_PA_DAC);        /* default PA DAC       */
 
     /* ── Modem configuration ────────────────────────────────────────── */
     LoRa_WriteReg(0x1D, LORA_REG_MODEM_CFG1);    /* BW=125k CR=4/5 ExpHdr*/
-    LoRa_WriteReg(0x1E, LORA_REG_MODEM_CFG2);    /* SF7, CRC on          */
+    LoRa_WriteReg(0x1E, LORA_REG_MODEM_CFG2);    /* SF, CRC on - lora.h  */
 
     /* Reg 0x26 = RegModemConfig3: AgcAutoOn=1 (bit2), LowDataRateOpt=0 *
      *   LORA_REG_MODEM_CFG3 = 0x04 = 0b00000100                        *
@@ -870,13 +881,23 @@ void LoRa_Task(void)
         uint8_t irq  = LoRa_ReadReg(REG_IRQ_FLAGS);
         uint8_t op   = LoRa_ReadReg(REG_OPMODE);
         uint8_t rssi = LoRa_ReadReg(REG_PKT_RSSI_VALUE);
+        g_loraDbg[0] = dio0; g_loraDbg[1] = irq; g_loraDbg[2] = op;
 
         snprintf(d, sizeof(d),
                  "[LORA RX] DIO0=%u IRQ=0x%02X OP=0x%02X(want 0x%02X) RSSI_REG=0x%02X",
                  dio0, irq, op, OPMODE_LORA_RXCONT, rssi);
         uart_print_now(d);
 
-        if (op != OPMODE_LORA_RXCONT)
+        if ((op & 0x80u) == 0u && LoRa_ReadReg(REG_VERSION) == 0x12u)
+        {
+            /* Ra-02 reset on its own (supply glitch): back in FSK mode with
+             * every LoRa setting lost - RX continuous alone cannot fix it.
+             * Full setup again; the held tank level (adc.c) is kept. */
+            g_loraReinits++;
+            uart_print_now("[LORA RX] radio lost its LoRa setup - re-init");
+            LoRa_Init();
+        }
+        else if (op != OPMODE_LORA_RXCONT)
         {
             uart_print_now("[LORA RX] WARNING: OpMode changed — restoring RX continuous");
             LoRa_EnterRxContinuous();
@@ -909,6 +930,8 @@ void LoRa_Task(void)
 
     s_rxBuf[len] = '\0';
     s_rxPacketCount++;
+    g_loraLastRssi = rssi;
+    g_loraLastSnr  = (int8_t)LoRa_ReadReg(0x19);   /* RegPktSnrValue */
 
     if (len < MAX_PACKET_LEN)
         memcpy((void *)g_lastRxPacket, s_rxBuf, (size_t)(len + 1u));

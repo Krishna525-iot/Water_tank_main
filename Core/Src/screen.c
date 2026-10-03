@@ -498,7 +498,7 @@ static void show_semi_auto(void)    { lcd_line0("Semi-Auto"); lcd_line1(semiAuto
 
 void ModelHandle_1SecondTask(void)
 {
-    if (countdownActive && countdownDuration > 0)
+    if (countdownActive && !countdownPaused && countdownDuration > 0)
     { countdownDuration--; if (countdownDuration == 0) countdownActive = false; }
 }
 
@@ -522,6 +522,17 @@ static void show_countdown(void)
         lcd_line0(l0); lcd_line1(l1); return;
     }
     uint32_t sec = countdownDuration, min = sec / 60, s = sec % 60;
+    if (countdownPaused)
+    {
+        /* Fault paused the countdown (CD-05/06): time left + reason */
+        const char *why = ModelHandle_IsVoltageFault() ? "VOLT ERR"  :
+                          ModelHandle_IsOverload()     ? "OVERLOAD"  :
+                          ModelHandle_IsUnderload()    ? "UNDERLD"   :
+                          ModelHandle_IsMaxRunReached()? "MAX RUN"   : "DRY RUN";
+        snprintf(l0, sizeof(l0), "CD %02lu:%02lu PAUSE", (unsigned long)min, (unsigned long)s);
+        snprintf(l1, sizeof(l1), "%-8s DN=RUN", why);
+        lcd_line0(l0); lcd_line1(l1); return;
+    }
     snprintf(l0, sizeof(l0), "CD %02lu:%02lu RUN", (unsigned long)min, (unsigned long)s);
     lcd_line0(l0); lcd_line1("DOWN=STOP      ");
 }
@@ -1031,7 +1042,14 @@ void Screen_HandleSwitches(void)
 
     refreshInactivityTimer();
 
-    /* ── Countdown running screen: DOWN stops it ─────────────────── */
+    /* ── Countdown running screen: DOWN stops it; paused by a fault,
+     *    DOWN continues it with the time left (CD-05/06) ─────────── */
+    if (ui == UI_COUNTDOWN && b == BTN_DOWN && countdownActive && countdownPaused)
+    {
+        ModelHandle_Button4_SinglePress();
+        screenNeedsRefresh = true;
+        return;
+    }
     if (ui == UI_COUNTDOWN && b == BTN_DOWN)
     {
         ModelHandle_StopCountdown();
@@ -1222,6 +1240,11 @@ void Screen_HandleSwitches(void)
                     ModelHandle_StartCountdown((uint32_t)ModelHandle_GetCountdownDefaultMin() * 60UL);
                     countdown_was_active = true;
                     sticky_set_countdown();
+                    ui = UI_COUNTDOWN;
+                }
+                else if (countdownPaused)
+                {
+                    ModelHandle_Button4_SinglePress();   /* continue with the time left */
                     ui = UI_COUNTDOWN;
                 }
                 else

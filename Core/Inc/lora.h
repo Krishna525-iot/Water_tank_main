@@ -26,6 +26,22 @@
 #include "stm32f1xx_hal.h"
 #include "main.h"
 #include "lora_protocol.h"
+/* lora_protocol.h has its own radio/timing defaults; the values below
+ * in this file are the ones used (both boards must match). #undef first
+ * so they replace them cleanly instead of "redefined" warnings. */
+#undef LORA_PREAMBLE_LSB
+#undef LORA_PREAMBLE_MSB
+#undef LORA_REG_DETECT_OPT
+#undef LORA_REG_MODEM_CFG1
+#undef LORA_REG_MODEM_CFG2
+#undef LORA_REG_OCP
+#undef LORA_REG_PA_CONFIG
+#undef LORA_REG_PA_DAC
+#undef LORA_SYNC_WORD
+#undef LORA_TX_TIMEOUT_MS
+#undef RX_PAIRING_TIMEOUT_MS
+#undef RX_PEER_TIMEOUT_MS
+#undef RX_SYNC_REQ_INTERVAL_MS
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -52,7 +68,7 @@
 #define LORA_REG_MODEM_CFG1       0x72
 
 /* RegModemConfig2: SF7, CRC ON */
-#define LORA_REG_MODEM_CFG2       0x74
+#define LORA_REG_MODEM_CFG2       0xA4
 
 /* RegModemConfig3: LowDataRateOptimize OFF, AGC Auto ON */
 #define LORA_REG_MODEM_CFG3       0x04
@@ -70,13 +86,13 @@
 #define LORA_PREAMBLE_LSB         0x08
 
 /* PA_BOOST */
-#define LORA_REG_PA_CONFIG        0x8F
+#define LORA_REG_PA_CONFIG        0xFF
 
 /* OCP ~100 mA */
-#define LORA_REG_OCP              0x2B
+#define LORA_REG_OCP              0x3B
 
-/* Normal PA DAC */
-#define LORA_REG_PA_DAC           0x84
+/* PA DAC high power mode, needed for +20 dBm (was 0x84 normal) */
+#define LORA_REG_PA_DAC           0x87
 
 /* ── Timing ────────────────────────────────────────────────────────── */
 #define LORA_TX_TIMEOUT_MS              3000UL

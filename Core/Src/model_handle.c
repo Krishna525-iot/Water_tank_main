@@ -93,6 +93,7 @@ static uint32_t starterPulseEnd   = 0;   /* 0 = relays not closed */
 #define FACTORY_TEST_GAP_S    1800U    /* testing gap: 30 min        */
 #define FACTORY_MAXRUN_MIN    150U
 #define FACTORY_RETRY_COUNT   5U
+#define RETRY_COUNT_MAX       15U      /* client 29-09: retry count 1..15 */
 #define FACTORY_UV            180U
 #define FACTORY_OV            280U
 #define FACTORY_OVERLOAD_A    25.0f
@@ -136,6 +137,13 @@ volatile bool manualOverride      = false;
 volatile uint16_t auto_retry_counter = 0;
 volatile bool     countdownMode      = false;
 volatile uint32_t countdownDuration  = 0;
+/* Client CD-05/06 (28-09): a fault PAUSES the countdown (time left kept
+ * and shown); it continues when the fault clears or with button 4. */
+volatile bool     countdownPaused    = false;
+static uint32_t   cdPausedLeftS      = 0;
+static bool       cdDryPause         = false;  /* paused by dry run: retry after testing gap */
+static uint8_t    cdDryFails         = 0;
+static uint32_t   cdRetryAt          = 0;
 #define DEFAULT_DRY_GAP_S        FACTORY_DRY_TEST_S   /* motor run/test time */
 #define DEFAULT_DRY_RETRY_S      FACTORY_TEST_GAP_S   /* testing gap         */
 #define DEFAULT_AUTO_MAXRUN_MIN  FACTORY_MAXRUN_MIN
@@ -150,9 +158,14 @@ typedef struct {
     bool    auto_on;
     bool    motor_on;
     uint8_t power_restore_mode;
+    uint8_t fresh_auto;     /* 1 = new device / after factory reset: power up in Auto */
 } ModeState;
 
 static ModeState modeState;
+
+/* Client AUTO-01 (28-09): a new device and a factory reset start in Auto,
+ * also with Power Restore OFF, until the user picks another mode. */
+static bool freshAuto = false;
 
 #define EE_ADDR_COUNTDOWN_BLOCK 0x0040
 #define EE_ADDR_MODE_BLOCK      0x0080
@@ -201,6 +214,9 @@ static inline void stop_motor(void);
 static inline void clear_all_modes(void);
 void ModelHandle_SoftDryRunHandler(void);
 static void SaveCountdown(void);
+static void countdown_pause(bool dry);
+static void countdown_resume(void);
+static void countdown_clear_pause(void);
 static bool     timer_any_active_slot(void);
 static uint16_t get_active_timer_gap_minutes(void);
 static uint8_t  get_today_mask(void);
@@ -496,7 +512,7 @@ void ModelHandle_LoadSettingsFromEEPROM(void)
 
     sys.gap_time_s     = b.gap;
     sys.dry_run_time_s = b.dry_time;
-    sys.retry_count    = b.retry;
+    sys.retry_count    = (b.retry > RETRY_COUNT_MAX) ? RETRY_COUNT_MAX : b.retry;
     sys.uv_limit       = b.uv;
     sys.ov_limit       = b.ov;
     sys.maxrun_min     = b.maxrun;
@@ -548,6 +564,10 @@ void ModelHandle_SaveModeState(void)
         modeState.motor_on     = (HAL_GPIO_ReadPin(Relay1_GPIO_Port, Relay1_Pin) == GPIO_PIN_SET);
     }
     modeState.power_restore_mode = powerRestoreMode;
+    if (!modeState.auto_on || modeState.manual_on || modeState.semi_on ||
+        modeState.timer_on || modeState.countdown_on || modeState.twist_on)
+        freshAuto = false;                 /* the user picked another mode */
+    modeState.fresh_auto = freshAuto ? 1 : 0;
     EEPROM_WriteBuffer(0x0200, (uint8_t*)&modeState, sizeof(modeState));
 }
 
@@ -670,9 +690,11 @@ void ModelHandle_LoadModeState(void)
     {
         memset(&modeState, 0, sizeof(modeState));
         modeState.power_restore_mode = FACTORY_PWR_RESTORE;
+        modeState.fresh_auto         = 1;  /* new device: Auto (AUTO-01) */
     }
     else memcpy(&modeState, raw, sizeof(modeState));
     powerRestoreMode = (modeState.power_restore_mode == 1) ? 1 : 0;
+    freshAuto        = (modeState.fresh_auto == 1);   /* old block layout: byte is not 1 */
 
     /* The last mode is kept in every power-restore setting; whether it is
      * resumed and whether the motor may run straight away is decided in
@@ -775,6 +797,16 @@ static uint8_t get_tank_level_percent(void)
 
     uint32_t now      = HAL_GetTick();
     uint8_t  rawLevel = read_raw_tank_level();
+
+    /* Wireless level: the transmitter already waited the 10 s stable
+     * time (GEN-01), so it is shown at once - update ~10 s end to end. */
+    if (ADC_LevelFromWireless())
+    {
+        stableLevel    = rawLevel;
+        candidateLevel = rawLevel;
+        changeTime     = now;
+        return stableLevel;
+    }
 
     if (rawLevel != stableLevel)
     {
@@ -1004,6 +1036,12 @@ void ModelHandle_FactoryReset(void)
     memset(&twistSettings, 0, sizeof(twistSettings));
     ModelHandle_SaveTwistToEEPROM();
     ModelHandle_SetCountdownDefaultMin(FACTORY_COUNTDOWN_MIN);
+
+    /* Client AUTO-01: after a factory reset the device is in Auto; the
+     * motor waits 10 s like at power-up, so it never starts by surprise */
+    freshAuto           = true;
+    bootStartBlockUntil = HAL_GetTick() + MOTOR_START_DELAY_MS;
+    ModelHandle_StartAuto(sys.gap_time_s, auto_maxrun_min, auto_retry_limit);
 }
 
 void ModelHandle_StartTimerNearestSlot(void)
@@ -1038,6 +1076,8 @@ static void Buzzer_StartEvent(BuzzerEvent ev)
 }
 
 #define TANK_FULL_BUZZ_MS 30000UL
+#define PUMP_BEEP_PERIOD_MS 3000UL   /* client BUZ-01: one beep every 3 s while the motor runs */
+#define PUMP_BEEP_ON_MS      500UL
 
 static void Buzzer_TankEmptyPattern(void)
 {
@@ -1091,7 +1131,7 @@ static void Buzzer_Update(void)
         }
         if (buzzerSettings.pumpOnSound)
         {
-            if ((now - motorToggleTime) >= 1000UL) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
+            if ((now - motorToggleTime) >= (motorBuzzState ? PUMP_BEEP_ON_MS : PUMP_BEEP_PERIOD_MS - PUMP_BEEP_ON_MS)) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
             Buzzer_SetPin(motorBuzzState);
         }
         else Buzzer_SetPin(false);
@@ -1106,7 +1146,7 @@ static void Buzzer_Update(void)
     {
         if (buzzerSettings.pumpOnSound)
         {
-            if ((now - motorToggleTime) >= 1000UL) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
+            if ((now - motorToggleTime) >= (motorBuzzState ? PUMP_BEEP_ON_MS : PUMP_BEEP_PERIOD_MS - PUMP_BEEP_ON_MS)) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
             Buzzer_SetPin(motorBuzzState);
         }
         else Buzzer_SetPin(false);
@@ -1148,6 +1188,7 @@ static inline void clear_all_modes(void)
     powerRestoreHold    = false;   /* a user-started mode is an on key */
     autoPausedByUser    = false;   /* another mode is now the last mode */
     manualPausedByUser  = false;
+    countdown_clear_pause();
 }
 
 void ModelHandle_OnPowerUp(void)
@@ -1169,12 +1210,15 @@ void ModelHandle_OnPowerUp(void)
      *         Semi-Auto: runs again (until tank full) if its motor was on.
      *         Manual: comes back with the motor off.
      *         Refill is not a mode: the mode it was started from applies.
-     *   OFF - always power up in Manual with the motor off. */
+     *   OFF - always power up in Manual with the motor off; but a new
+     *         device / after a factory reset powers up in Auto (AUTO-01)
+     *         until the user picks another mode. */
     bool wasRunning = modeState.motor_on;
     if (powerRestoreMode != 0)
     {
         clear_all_modes();
-        manualActive = true;
+        if (freshAuto) autoActive   = true;
+        else           manualActive = true;
     }
     else if (modeState.countdown_on)
     {
@@ -1231,7 +1275,7 @@ void ModelHandle_OnPowerUp(void)
         motorOwner          = MOTOR_OWNER_AUTO;
         autoState           = AUTO_ON_WAIT;
         stateDeadline       = 0;
-        autoRestoreOverride = true;
+        autoRestoreOverride = (powerRestoreMode == 0);   /* fresh Auto (restore OFF): normal level rule */
         powerRestoreHold    = false;
     }
 }
@@ -1343,7 +1387,7 @@ static void check_max_run(void)
     dryState = DRY_IDLE;
 
     if (restartActive)   ModelHandle_StopRestart();
-    if (countdownActive) ModelHandle_StopCountdown();
+    if (countdownActive) countdown_pause(false);   /* resumes after the lock (CD-06) */
     if (manualActive)
     {
         manualActive       = false;
@@ -1368,7 +1412,17 @@ void ModelHandle_Button4_SinglePress(void)
         countdownDuration = defaultSeconds;
         cdTankFullHold    = false;
         dryState          = DRY_IDLE;
+        countdown_clear_pause();
         start_motor();
+    }
+    else if (countdownPaused)
+    {
+        /* Paused by a fault: button 4 continues with the time left (CD-05).
+         * Dry run / max run are cleared by the user; a voltage or current
+         * fault still blocks the motor and pauses it again. */
+        cdDryFails = 0;
+        ModelHandle_ClearMaxRunFlag();
+        countdown_resume();
     }
     else
     {
@@ -1459,7 +1513,7 @@ void ModelHandle_SoftDryRunHandler(void)
                             /* run ends, device stays in Semi-Auto (client SEMI-04) */
                             semiTankFullHold = true; break;
                         case MOTOR_OWNER_COUNTDOWN:
-                            ModelHandle_StopCountdown(); break;
+                            countdown_pause(true); break;   /* retry after the testing gap (CD-05) */
                         case MOTOR_OWNER_TWIST:
                             ModelHandle_StopTwist(); break;
                         case MOTOR_OWNER_RESTART:
@@ -1946,7 +2000,7 @@ void ModelHandle_LoadAutoSettings(void)
         { auto_gap_s = 120; EEPROM_WriteBlockSafe(0x0300, (uint8_t*)&auto_gap_s, sizeof(auto_gap_s)); }
     if (auto_maxrun_min == 0xFFFF || auto_maxrun_min > 600)
         { auto_maxrun_min = 30; EEPROM_WriteBlockSafe(0x0302, (uint8_t*)&auto_maxrun_min, sizeof(auto_maxrun_min)); }
-    if (auto_retry_limit == 0xFF || auto_retry_limit > 20)
+    if (auto_retry_limit == 0xFF || auto_retry_limit > RETRY_COUNT_MAX)
         { auto_retry_limit = 3; EEPROM_WriteBlockSafe(0x0304, (uint8_t*)&auto_retry_limit, sizeof(auto_retry_limit)); }
 }
 
@@ -2195,18 +2249,64 @@ void ModelHandle_StartCountdown(uint32_t seconds)
     motorOwner         = MOTOR_OWNER_COUNTDOWN;
     cdTankFullHold     = false;
     dryState           = DRY_IDLE;
+    countdown_clear_pause();
 
     start_motor();
     ModelHandle_SaveModeState();
     SaveCountdown();
 }
 
+static void countdown_clear_pause(void)
+{
+    countdownPaused = false;
+    cdPausedLeftS   = 0;
+    cdDryPause      = false;
+    cdDryFails      = 0;
+    cdRetryAt       = 0;
+}
+
+/* A fault stops the motor and freezes the time left (client CD-05/06) */
+static void countdown_pause(bool dry)
+{
+    uint32_t now = HAL_GetTick();
+    if (countdownActive && !countdownPaused)
+    {
+        int32_t leftMs = (int32_t)(cd_deadline - now);
+        cdPausedLeftS     = (leftMs > 0) ? ((uint32_t)leftMs + 999UL) / 1000UL : 0;
+        countdownDuration = cdPausedLeftS;
+        countdownPaused   = true;
+    }
+    if (dry)
+    {
+        cdDryPause = true;
+        if (cdDryFails < 0xFF) cdDryFails++;
+        cdRetryAt = now + get_test_gap_ms();
+    }
+    stop_motor();
+    SaveCountdown();
+    ModelHandle_SaveModeState();
+}
+
+/* Continue with the time left (fault cleared, or button 4) */
+static void countdown_resume(void)
+{
+    if (!countdownPaused) return;
+    cd_deadline       = HAL_GetTick() + cdPausedLeftS * 1000UL;
+    countdownDuration = cdPausedLeftS;
+    countdownPaused   = false;
+    cdDryPause        = false;
+    dryState          = DRY_IDLE;
+    start_motor();
+    SaveCountdown();
+}
+
 void ModelHandle_StopCountdown(void)
 {
-    /* However the countdown ends (time over, user stop, tank full, dry
-     * run, fault, max run) the motor stops and the device stays in
-     * Countdown mode (client CD-02/03/05/06). The user picks another mode
-     * or presses button 4 again to run the last selected time. */
+    /* The countdown ends (time over, user stop, tank full); a fault only
+     * pauses it (countdown_pause). The motor stops and the device stays in
+     * Countdown mode (client CD-02/03). The user picks another mode or
+     * presses button 4 again to run the last selected time. */
+    countdown_clear_pause();
     countdownActive   = false;
     countdownMode     = true;
     cd_deadline       = 0;
@@ -2274,7 +2374,9 @@ static void SaveCountdown(void)
     memset(&b, 0, sizeof(b));
     b.sig    = CD_SIGNATURE;
     b.active = countdownActive;
-    if (countdownActive)
+    if (countdownActive && countdownPaused)
+        b.remaining = cdPausedLeftS;
+    else if (countdownActive)
     {
         uint32_t now = now_ms();
         b.remaining = (cd_deadline > now) ? (cd_deadline - now) / 1000UL : 0;
@@ -2300,6 +2402,7 @@ void ModelHandle_LoadCountdown(void)
         cd_deadline       = bootStartBlockUntil + b.remaining * 1000UL;
         cdTankFullHold    = false;
         motorOwner        = MOTOR_OWNER_COUNTDOWN;
+        countdown_clear_pause();   /* power restore is an on key: continue */
     }
 }
 
@@ -2648,6 +2751,20 @@ void ModelHandle_Process(void)
 
         case MOTOR_OWNER_COUNTDOWN:
             if (!countdownActive) break;
+            if (countdownPaused)
+            {
+                /* Tank full still ends it; otherwise continue once the
+                 * fault is gone. Dry run: retry after the testing gap, up to
+                 * the retry count - then only button 4 continues it. */
+                if (tankFull) { ModelHandle_StopCountdown(); break; }
+                bool cleared = !protectionFault;
+                if (cdDryPause)
+                    cleared = cleared && !retries_exhausted(cdDryFails) &&
+                              (int32_t)(now - cdRetryAt) >= 0;
+                if (cleared) countdown_resume();
+                else         stop_motor();
+                break;
+            }
             if ((int32_t)(now - cd_deadline) >= 0) { countdown_finished(); break; }
             countdownDuration = (cd_deadline - now) / 1000UL;
             {
@@ -2656,9 +2773,9 @@ void ModelHandle_Process(void)
                 static uint32_t lastCdSave = 0;
                 if ((now - lastCdSave) >= 60000UL) { lastCdSave = now; SaveCountdown(); }
             }
-            /* Fault and tank full are off keys: the countdown ends and the
-             * previous mode continues. */
-            if (protectionFault || tankFull) { ModelHandle_StopCountdown(); break; }
+            /* Tank full ends the countdown; a fault pauses it (CD-05/06) */
+            if (tankFull)        { ModelHandle_StopCountdown(); break; }
+            if (protectionFault) { countdown_pause(false);      break; }
             start_motor();
             break;
 
@@ -2715,7 +2832,7 @@ void ModelHandle_SetUserSettings(uint32_t gap_seconds,
                                  uint16_t maxrun_min)
 {
     if (gap_seconds > 86400UL) gap_seconds = 86400UL;
-    if (retry > 20)            retry       = 20;
+    if (retry > RETRY_COUNT_MAX) retry     = RETRY_COUNT_MAX;
     if (maxrun_min > 1440)     maxrun_min  = 1440;
     sys.gap_time_s  = gap_seconds;
     sys.retry_count = retry;

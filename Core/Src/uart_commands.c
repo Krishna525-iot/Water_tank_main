@@ -467,10 +467,12 @@ void UART_HandleCommand(const char *pkt)
         else if (!strcmp(sub, "GET"))
         {
             char resp[48];
-            snprintf(resp, sizeof(resp), "@COUNTDOWN_DATA:%u:%lu:%u#",
+            /* 4th field: 1 = paused by a fault (CD-05/06), time left frozen */
+            snprintf(resp, sizeof(resp), "@COUNTDOWN_DATA:%u:%lu:%u:%u#",
                      (unsigned)ModelHandle_GetCountdownDefaultMin(),
                      countdownActive ? (unsigned long)countdownDuration : 0UL,
-                     countdownActive ? 1u : 0u);
+                     countdownActive ? 1u : 0u,
+                     (countdownActive && countdownPaused) ? 1u : 0u);
             ack(resp);
         }
         else if (!strcmp(sub, "OFF"))
