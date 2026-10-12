@@ -344,8 +344,22 @@ static void show_dash(void)
     if (dash_page == 0)
     {
         snprintf(l0, sizeof(l0), "%-7sM:%-3s%3d%%", mode, motorOn ? "ON " : "OFF", tankPercent);
+        /* Client report 12-10, item 5 (B-03): why the motor is off, in
+         * every mode - the protection that stopped it, on line 2. */
+        const char *reason = NULL;
+        if (!motorOn)
+        {
+            if      (ModelHandle_IsMaxRunReached())  reason = "MAX RUN";
+            else if (ModelHandle_IsVoltageFault())
+                reason = (g_voltageV > (float)ModelHandle_GetOverVolt()) ? "HIGH VOLT" : "LOW VOLT";
+            else if (ModelHandle_IsOverload())       reason = "OVERLOAD";
+            else if (ModelHandle_IsUnderload())      reason = "UNDERLOAD";
+            else if (dryFSMState == DRY_FAULT)       reason = "DRY RUN";
+        }
         if (tankFull)
             snprintf(l1, sizeof(l1), "TANK FULL %s", clock_hhmm());
+        else if (reason)
+            snprintf(l1, sizeof(l1), "%-10s %s", reason, clock_hhmm());
         else if (dryEnabled && !senseDryRun)   /* DRY only when Dry Run is enabled */
             snprintf(l1, sizeof(l1), "G.W:%-3s DRY%s", groundWater ? "YES" : "NO ", clock_hhmm());
         else
