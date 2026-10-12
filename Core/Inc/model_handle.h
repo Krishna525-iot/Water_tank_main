@@ -120,6 +120,7 @@ void ModelHandle_SaveTimerState(void);
 extern void ModelHandle_StartRestart(void);
 extern bool ModelHandle_IsRestartActive(void);
 void ModelHandle_ManualToggleMotor(void);
+void ModelHandle_AppMotorSet(bool on);   /* app motor button: Manual, motor ON/OFF */
 bool     ModelHandle_IsManualActive(void);
 uint16_t ModelHandle_GetAutoGap(void);
 uint16_t ModelHandle_GetAutoMaxRun(void);

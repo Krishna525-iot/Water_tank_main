@@ -226,7 +226,8 @@ void UART_HandleCommand(const char *pkt)
     char *cmd = next_token(&ctx);
     if (!cmd) return;
     if (!strcmp(cmd, "PING"))   { ack("@PONG#"); return; }
-    if (!strcmp(cmd, "STATUS")) { UART_SendStatusPacket(); return; }
+    /* A request always gets an answer, also when nothing changed */
+    if (!strcmp(cmd, "STATUS")) { UART_InitCommandSystem(); UART_SendStatusPacket(); return; }
     if (!strcmp(cmd, "TINFO"))  { send_timer_info(); return; }
     if (!strcmp(cmd, "TIME"))
     {
@@ -344,13 +345,15 @@ void UART_HandleCommand(const char *pkt)
         }
         else if (!strcmp(state, "MOTOR_ON"))
         {
-            if (!Motor_GetStatus()) ModelHandle_ManualToggleMotor();
+            ModelHandle_AppMotorSet(true);    /* from any mode: Manual, motor ON  */
             ack("@MANUAL_MOTOR_ON#");
+            UART_InitCommandSystem(); UART_SendStatusPacket();   /* app shows the device's real state */
         }
         else if (!strcmp(state, "MOTOR_OFF"))
         {
-            if (Motor_GetStatus()) ModelHandle_ManualToggleMotor();
+            ModelHandle_AppMotorSet(false);   /* from any mode: Manual, motor OFF */
             ack("@MANUAL_MOTOR_OFF#");
+            UART_InitCommandSystem(); UART_SendStatusPacket();   /* app shows the device's real state */
         }
         return;
     }

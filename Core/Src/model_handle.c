@@ -537,6 +537,7 @@ static bool previousTimer       = false;
 static bool previousTwist       = false;
 static bool previousAutoPaused  = false;
 static bool previousManualPaused = false;
+static bool previousManualMotorOff = false;   /* Manual was on with its motor OFF */
 
 void ModelHandle_SaveModeState(void)
 {
@@ -599,6 +600,9 @@ static void backup_current_mode(void)
     previousTwist        = twistActive;
     previousAutoPaused   = autoPausedByUser;
     previousManualPaused = manualPausedByUser;
+    /* Manual with its motor OFF (app motor button, or after power-up):
+     * clear_all_modes() wipes manualMotorOff, so keep it here (B-06). */
+    previousManualMotorOff = manualActive && (manualMotorOff || !Motor_GetStatus());
     save_previous_mode();
 }
 
@@ -615,7 +619,15 @@ static void restore_previous_mode(void)
     manualPausedByUser = previousManualPaused;
 
     if (previousManual)
-        motorOwner = MOTOR_OWNER_MANUAL;
+    {
+        /* Back to Manual with the motor as it was before the Refill: if it
+         * was OFF it stays OFF (client report 12-10, item 15 / B-06). */
+        motorOwner        = MOTOR_OWNER_MANUAL;
+        manualOverride    = true;
+        manualFromRestore = false;
+        manualMotorOff    = previousManualMotorOff;
+        if (manualMotorOff) { stop_motor(); return; }
+    }
     else if (previousSemi)
     {
         /* Refill from a finished Semi-Auto run: back to SEMI-AUTO, motor
@@ -1918,6 +1930,30 @@ void ModelHandle_StartSemiAuto(void)
 
 /* Semi-Auto shown with its run ended (tank full, dry run, fault, max run) */
 bool ModelHandle_IsSemiRunEnded(void) { return semiAutoActive && semiTankFullHold; }
+
+/* App motor button (client report 12-10, item 12 / B-05): one tap does
+ * what it shows. From any mode the device goes to Manual and the motor is
+ * set ON or OFF directly - no hidden "first tap only changes the mode". */
+void ModelHandle_AppMotorSet(bool on)
+{
+    if (!manualActive)
+    {
+        bool wasAuto = autoActive || autoPausedByUser;
+        restartActive = false;
+        clear_all_modes();
+        countdown_clear_pause();
+        if (wasAuto) autoUserLocked = true;
+        manualActive   = true;
+        manualOverride = true;
+        motorOwner     = MOTOR_OWNER_MANUAL;
+        dryState       = DRY_IDLE;
+    }
+    manualFromRestore = false;
+    manualMotorOff    = !on;
+    if (on) { senseMaxRunReached = false; start_motor(); }
+    else    stop_motor();
+    ModelHandle_SaveModeState();
+}
 
 void ModelHandle_StopSemiAuto(void)
 {
