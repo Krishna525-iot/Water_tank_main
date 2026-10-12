@@ -186,7 +186,7 @@ static uint8_t menu_view_top = 0;
 static const char* const devset_menu_items[] = {
     "Dry Run En","Test Time","Retry Gap","Low Volt","High Volt",
     "Over Load","Under Load","Max Run","Set Date","Set Time","Set Day",
-    "Power Restore","Factory Reset","Back"
+    "Power Restore","Back"   /* Factory reset only in the main menu (with YES/NO), B-04 */
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
 
@@ -852,25 +852,7 @@ static void menu_select(void)
             case 11:
                 edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
                 ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
-            case 12:
-                edit_settings_factory_yes ^= 1;
-                if (edit_settings_factory_yes)
-                {
-                    ModelHandle_FactoryReset();
-                    edit_settings_dry_en  = ModelHandle_GetDryRunEnable() ? 1 : 0;
-                    edit_settings_gap_s   = ModelHandle_GetGapTime() / 60;
-                    edit_settings_retry   = ModelHandle_GetDryRunRetryGap() / 60;
-                    edit_settings_uv      = ModelHandle_GetUnderVolt();
-                    edit_settings_ov      = ModelHandle_GetOverVolt();
-                    edit_settings_maxrun  = ModelHandle_GetMaxRunTime();
-                    edit_settings_ol      = (int)ModelHandle_GetOverloadLimit();
-                    edit_settings_ul      = (int)ModelHandle_GetUnderloadLimit();
-                    edit_settings_pwrrest = ModelHandle_GetPowerRestoreMode();
-                    edit_settings_factory_yes = false;
-                    clear_sticky_mode_flags(); ui = UI_DASH;
-                }
-                break;
-            case 13: ui = UI_MENU; break;
+            case 12: ui = UI_MENU; break;   /* Back */
         }
         screenNeedsRefresh = true; return;
     }
