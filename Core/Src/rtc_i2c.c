@@ -7,6 +7,8 @@ extern I2C_HandleTypeDef hi2c2;
 #define DS1307_7BIT_ADDR    0x68
 #define DS1307_8BIT_ADDR    (DS1307_7BIT_ADDR << 1)
 RTC_Time_t time;
+volatile bool g_rtcTimeLost = false;
+#define RTC_MIN_VALID_YEAR 2024U
 static uint8_t dec2bcd(uint8_t v)
 {
     return ((v / 10) << 4) | (v % 10);
@@ -21,6 +23,7 @@ void RTC_Init(void)
     if (HAL_I2C_IsDeviceReady(&hi2c2, DS1307_8BIT_ADDR, 3, 100) != HAL_OK)
     {
         printf("❌ DS1307 NOT found\r\n");
+        g_rtcTimeLost = true;
         return;
     }
     HAL_I2C_Mem_Read(&hi2c2, DS1307_8BIT_ADDR,
@@ -28,6 +31,9 @@ void RTC_Init(void)
                      &sec, 1, 100);
     if (sec & 0x80)
     {
+        /* Oscillator was halted: the DS1307 lost all power (no backup
+         * battery) and restarts from 00:00 01-01-2000 - time is lost. */
+        g_rtcTimeLost = true;
         sec &= 0x7F;
         HAL_I2C_Mem_Write(&hi2c2, DS1307_8BIT_ADDR,
                           0x00, I2C_MEMADD_SIZE_8BIT,
@@ -64,6 +70,7 @@ void RTC_SetTimeDate(uint8_t sec, uint8_t min, uint8_t hour,
                       0x00, I2C_MEMADD_SIZE_8BIT,
                       buf, 7, 200);
     HAL_Delay(15);
+    if (year >= RTC_MIN_VALID_YEAR) g_rtcTimeLost = false;   /* clock set by the user */
 }
 /* Set-clock request, written over SWD from the PC (bench tool): fill in
  * the fields, then write magic = 0xA5 last. Serviced from the main loop. */
@@ -113,4 +120,5 @@ void RTC_GetTimeDate(void)
     time.dom   = bcd2dec(buf[4]);
     time.month = bcd2dec(buf[5]);
     time.year  = 2000 + bcd2dec(buf[6]);
+    if (time.year < RTC_MIN_VALID_YEAR) g_rtcTimeLost = true;   /* never set */
 }

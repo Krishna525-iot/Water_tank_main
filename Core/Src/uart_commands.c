@@ -65,10 +65,15 @@ extern volatile bool groundWater;
 void UART_SendLivePacket(void)
 {
     char buf[64];
-    snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%02u:%02u:%02u#",
-             (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
-             groundWater ? 1u : 0u, senseDryRun ? 1u : 0u,
-             time.hour, time.min, time.sec);
+    if (!RTC_IsTimeValid())   /* clock lost (B-10): the app shows --:--:-- */
+        snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:--:--:--#",
+                 (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
+                 groundWater ? 1u : 0u, senseDryRun ? 1u : 0u);
+    else
+        snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%02u:%02u:%02u#",
+                 (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
+                 groundWater ? 1u : 0u, senseDryRun ? 1u : 0u,
+                 time.hour, time.min, time.sec);
     UART_TransmitPacket(buf);
 }
 

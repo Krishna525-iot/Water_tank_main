@@ -54,6 +54,12 @@ uint8_t RTC_I2C_ScanDevice(uint8_t start7, uint8_t end7);
 // Expose Time Object
 extern RTC_Time_t time;
 
+// Clock lost its time (DS1307 found halted at power-up = backup battery
+// dead/missing, or a year before 2024). Cleared when the clock is set.
+// While set, nothing that depends on the time of day may run (B-10).
+extern volatile bool g_rtcTimeLost;
+static inline bool RTC_IsTimeValid(void) { return !g_rtcTimeLost; }
+
 // Set-clock request (PC bench tool over SWD): fields first, magic last.
 // dow: 1 = Sunday .. 7 = Saturday (as shown on the LCD); yy = year - 2000
 #define RTC_SET_REQUEST_MAGIC 0xA5

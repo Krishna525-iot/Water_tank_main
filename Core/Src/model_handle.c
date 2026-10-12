@@ -1698,6 +1698,9 @@ static bool slot_is_active_now(const TimerSlot *t)
 
 static bool timer_any_active_slot(void)
 {
+    /* Clock lost (RTC battery): no slot may start the motor at a wrong
+     * time of day until the clock is set again (B-10). */
+    if (!RTC_IsTimeValid()) return false;
     for (int i = 0; i < 5; i++)
         if (slot_is_active_now(&timerSlots[i])) return true;
     return false;
@@ -2606,6 +2609,7 @@ static bool twist_window_active(void)
     uint16_t now  = (uint16_t)time.hour * 60U + time.min;
 
     if (onT == offT) return true;
+    if (!RTC_IsTimeValid()) return false;   /* clock lost: a time window cannot be judged (B-10) */
     if (onT < offT)  return (now >= onT && now < offT);
     return (now >= onT || now < offT);
 }

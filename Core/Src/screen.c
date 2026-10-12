@@ -265,6 +265,15 @@ void Screen_Init(void)
 }
 static inline void refreshInactivityTimer(void) { lastUserAction = HAL_GetTick(); }
 
+/* "HH:MM", or "--:--" while the clock has lost its time (B-10) */
+static const char *clock_hhmm(void)
+{
+    static char b[6];
+    if (!RTC_IsTimeValid()) return "--:--";
+    snprintf(b, sizeof(b), "%02u:%02u", time.hour % 100u, time.min % 100u);
+    return b;
+}
+
 static inline void lcd_line(uint8_t row, const char *s)
 {
     char buf[17]; snprintf(buf, sizeof(buf), "%-16.16s", s);
@@ -336,11 +345,11 @@ static void show_dash(void)
     {
         snprintf(l0, sizeof(l0), "%-7sM:%-3s%3d%%", mode, motorOn ? "ON " : "OFF", tankPercent);
         if (tankFull)
-            snprintf(l1, sizeof(l1), "TANK FULL %02u:%02u", time.hour, time.min);
+            snprintf(l1, sizeof(l1), "TANK FULL %s", clock_hhmm());
         else if (dryEnabled && !senseDryRun)   /* DRY only when Dry Run is enabled */
-            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
+            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%s", groundWater ? "YES" : "NO ", clock_hhmm());
         else
-            snprintf(l1, sizeof(l1), "G.W:%-3s    %02u:%02u", groundWater ? "YES" : "NO ", time.hour, time.min);
+            snprintf(l1, sizeof(l1), "G.W:%-3s    %s", groundWater ? "YES" : "NO ", clock_hhmm());
         lcd_line0(l0); lcd_line1(l1);
     }
     else
@@ -518,7 +527,7 @@ static void show_countdown(void)
     {
         uint8_t pct = ModelHandle_GetTankLevelPercent();
         snprintf(l0, sizeof(l0), "COUNT M:OFF%3d%%", pct);
-        snprintf(l1, sizeof(l1), "           %02u:%02u", time.hour, time.min);
+        snprintf(l1, sizeof(l1), "           %s", clock_hhmm());
         lcd_line0(l0); lcd_line1(l1); return;
     }
     uint32_t sec = countdownDuration, min = sec / 60, s = sec % 60;
