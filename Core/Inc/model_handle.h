@@ -88,6 +88,7 @@ bool ModelHandle_IsUnderload(void);
 bool ModelHandle_IsDryRunActive(void);
 bool ModelHandle_IsVoltageFault(void);
 bool ModelHandle_IsMaxRunReached(void);
+uint32_t ModelHandle_GetMotorRunSeconds(void);
 void ModelHandle_SetDryRun(bool on);
 float    ModelHandle_GetOverloadLimit(void);
 void ModelHandle_SetOverLoad(bool on);

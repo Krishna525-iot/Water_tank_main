@@ -60,20 +60,23 @@ void UART_SendStatusPacket(void)
 }
 
 /* Live data for the app, sent every second (client DEC-16: other data
- * refreshes every 1 s): @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss># */
+ * refreshes every 1 s):
+ * @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss>:<run s># -
+ * run s = seconds the motor has run, -1 while it is off (N-03) */
 extern volatile bool groundWater;
 void UART_SendLivePacket(void)
 {
     char buf[64];
+    char clk[9];
     if (!RTC_IsTimeValid())   /* clock lost (B-10): the app shows --:--:-- */
-        snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:--:--:--#",
-                 (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
-                 groundWater ? 1u : 0u, senseDryRun ? 1u : 0u);
+        snprintf(clk, sizeof(clk), "--:--:--");
     else
-        snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%02u:%02u:%02u#",
-                 (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
-                 groundWater ? 1u : 0u, senseDryRun ? 1u : 0u,
-                 time.hour, time.min, time.sec);
+        snprintf(clk, sizeof(clk), "%02u:%02u:%02u",
+                 time.hour % 100u, time.min % 100u, time.sec % 100u);
+    long run = Motor_GetStatus() ? (long)ModelHandle_GetMotorRunSeconds() : -1L;
+    snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%s:%ld#",
+             (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
+             groundWater ? 1u : 0u, senseDryRun ? 1u : 0u, clk, run);
     UART_TransmitPacket(buf);
 }
 

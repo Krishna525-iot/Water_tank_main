@@ -2995,6 +2995,11 @@ bool ModelHandle_IsUnderload(void)      { return senseUnderLoad; }
 bool ModelHandle_IsDryRunActive(void)   { return senseDryRun; }
 bool ModelHandle_IsVoltageFault(void)   { return senseOverUnderVolt; }
 bool ModelHandle_IsMaxRunReached(void)  { return senseMaxRunReached; }
+/* Seconds since the motor relay switched on, 0 while it is off (N-03) */
+uint32_t ModelHandle_GetMotorRunSeconds(void)
+{
+    return Motor_GetStatus() ? (HAL_GetTick() - motorOnStartMs) / 1000UL : 0;
+}
 uint8_t ModelHandle_GetTankLevelPercent(void) { return get_tank_level_percent(); }
 bool ModelHandle_IsTankFull(void)       { return isTankFull(); }
 bool ModelHandle_IsManualActive(void)   { return manualActive; }

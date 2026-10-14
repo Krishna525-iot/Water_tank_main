@@ -274,6 +274,21 @@ static const char *clock_hhmm(void)
     return b;
 }
 
+/* N-03 (client report 12-10, item 6): while the motor runs, how long it
+ * has run - "MM:SS" in the first hour, then "HhMM" - instead of the clock */
+static const char *clock_or_runtime(bool motorOn)
+{
+    static char b[6];
+    if (!motorOn) return clock_hhmm();
+    uint32_t s = ModelHandle_GetMotorRunSeconds();
+    if (s < 3600UL)
+        snprintf(b, sizeof(b), "%02lu:%02lu", (unsigned long)(s / 60UL), (unsigned long)(s % 60UL));
+    else
+        snprintf(b, sizeof(b), "%2luh%02lu", (unsigned long)((s / 3600UL) % 100UL),
+                 (unsigned long)((s / 60UL) % 60UL));
+    return b;
+}
+
 static inline void lcd_line(uint8_t row, const char *s)
 {
     char buf[17]; snprintf(buf, sizeof(buf), "%-16.16s", s);
@@ -357,13 +372,13 @@ static void show_dash(void)
             else if (dryFSMState == DRY_FAULT)       reason = "DRY RUN";
         }
         if (tankFull)
-            snprintf(l1, sizeof(l1), "TANK FULL %s", clock_hhmm());
+            snprintf(l1, sizeof(l1), "TANK FULL %s", clock_or_runtime(motorOn));
         else if (reason)
             snprintf(l1, sizeof(l1), "%-10s %s", reason, clock_hhmm());
         else if (dryEnabled && !senseDryRun)   /* DRY only when Dry Run is enabled */
-            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%s", groundWater ? "YES" : "NO ", clock_hhmm());
+            snprintf(l1, sizeof(l1), "G.W:%-3s DRY%s", groundWater ? "YES" : "NO ", clock_or_runtime(motorOn));
         else
-            snprintf(l1, sizeof(l1), "G.W:%-3s    %s", groundWater ? "YES" : "NO ", clock_hhmm());
+            snprintf(l1, sizeof(l1), "G.W:%-3s    %s", groundWater ? "YES" : "NO ", clock_or_runtime(motorOn));
         lcd_line0(l0); lcd_line1(l1);
     }
     else
