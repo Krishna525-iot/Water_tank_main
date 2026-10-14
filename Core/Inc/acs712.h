@@ -18,7 +18,7 @@ extern float g_voltageV;   // Volts
 #define ACS712_ADC_CHANNEL     ADC_CHANNEL_7
 #define ACS712_ZERO_SAMPLES 500
 #define ACS712_FILTER_ALPHA    0.1f   // used only for final smoothing
-#define ACS712_SENS_30A  0.066f   // 66mV per Ampere for ACS712-30A
+#define ACS712_SENS      0.185f   // 185mV per Ampere: board has ACS712ELCTR-05B (5A)
 
 /* ---------------- ZMPT101B VOLTAGE ------------------ */
 #define ZMPT_ADC_CHANNEL       ADC_CHANNEL_6

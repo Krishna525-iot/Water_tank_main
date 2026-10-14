@@ -13,7 +13,7 @@ static float zmpt_offset = 1.65f;
 static float last_voltage = 0.0f;
 static float last_current = 0.0f;
 static float last_raw_current = 0.0f;
-#define ACS712_GAIN_CORR  1.25f
+#define ACS712_GAIN_CORR  1.00f
 #define ACS712_NOISE_DEADBAND_A  0.10f   /* readings below this (while motor is ON) are treated as noise */
 
 /* -------------------------------------------------------
@@ -23,7 +23,8 @@ static float last_raw_current = 0.0f;
      CAL:I:0        - motor on with no load: learn the zero
 -------------------------------------------------------- */
 #define EE_ADDR_CAL_BLOCK  0x0900
-#define CAL_SIG            0xCA1B
+#define CAL_SIG            0xCA1C   /* 0xCA1B: gain was for the 30A scale */
+#define CAL_SIG_OLD        0xCA1B
 
 typedef struct __attribute__((packed)) {
     uint16_t sig;
@@ -65,9 +66,11 @@ static void cal_load(void)
 {
     CalBlock b;
     EEPROM_ReadBuffer(EE_ADDR_CAL_BLOCK, (uint8_t*)&b, sizeof(b));
-    if (b.sig != CAL_SIG || b.crc != cal_crc((uint8_t*)&b, sizeof(b) - 2)) return;
+    if (b.crc != cal_crc((uint8_t*)&b, sizeof(b) - 2)) return;
+    if (b.sig != CAL_SIG && b.sig != CAL_SIG_OLD) return;
     if (b.vFactor > 50.0f && b.vFactor < 1000.0f) zmpt_factor = b.vFactor;
-    if (b.iGain   > 0.1f  && b.iGain   < 10.0f)   acs_gain    = b.iGain;
+    /* An old block's current gain was made for the 30A scale: keep only its voltage */
+    if (b.sig == CAL_SIG && b.iGain > 0.1f && b.iGain < 10.0f) acs_gain = b.iGain;
 }
 
 /* -------------------------------------------------------
@@ -138,7 +141,7 @@ static float acs_read_raw_rms_a(void)
     acs_zero_offset = (acs_zero_offset * 0.995f) + (new_offset * 0.005f);
 
     float rms = sqrtf(sum_sq / SAMPLES);
-    last_raw_current = (rms / ACS712_SENS_30A) * acs_gain;
+    last_raw_current = (rms / ACS712_SENS) * acs_gain;
     return last_raw_current;
 }
 
