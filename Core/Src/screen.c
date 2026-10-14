@@ -58,6 +58,7 @@ typedef enum {
     UI_ADD_DEVICE_PAIR_DONE,
     UI_ADD_DEVICE_REMOVE_DONE,
     UI_RESET_CONFIRM,
+    UI_DEVSET_VSENSE,
     UI_NONE,
     UI_MAX_
 } UiState;
@@ -186,7 +187,7 @@ static uint8_t menu_view_top = 0;
 static const char* const devset_menu_items[] = {
     "Dry Run En","Test Time","Retry Gap","Low Volt","High Volt",
     "Over Load","Under Load","Max Run","Set Date","Set Time","Set Day",
-    "Power Restore","Back"   /* Factory reset only in the main menu (with YES/NO), B-04 */
+    "Power Restore","V Sensor Adj","Back"   /* Factory reset only in the main menu (with YES/NO), B-04 */
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
 
@@ -441,6 +442,39 @@ static void show_menu(void)
     else
         snprintf(l1, sizeof(l1), "                ");
     lcd_line0(l0); lcd_line1(l1); draw_menu_cursor();
+}
+
+/* Device Setup > V Sensor Adj (client report 12-10, item 2 / B-01): the
+ * installer turns the ZMPT101B pot until the screen says OK, then
+ * calibrates the voltage against a meter in the app. The sensor output
+ * sits on ~2.5 V, so only the top half can clip at the 3.3 V ADC limit.
+ * gain = peak / room above the centre. 66 % at ~230 V mains is ideal: the
+ * wave stays unclipped up to ~290 V and is still well resolved. The screen
+ * shows a score, 100 % = ideal gain, 80 % = edge of the OK band (55-77 %). */
+extern volatile float g_zmptMinV, g_zmptMaxV;
+#define VSENSE_GAIN_IDEAL_PCT  66.0f
+#define VSENSE_SCORE_PER_PCT   1.8f    /* score lost per % of gain off ideal */
+#define VSENSE_SCORE_OK        80
+
+static void show_vsense(void)
+{
+    char l0[17];
+    float vmin   = g_zmptMinV, vmax = g_zmptMaxV;
+    float centre = (vmin + vmax) * 0.5f;
+    float room   = 3.3f - centre;
+    float peak   = (vmax - vmin) * 0.5f;
+    bool  clip   = (vmax >= 3.28f) || (vmin <= 0.02f);
+    float gain   = (room > 0.05f) ? peak * 100.0f / room : 999.0f;
+    float off    = gain - VSENSE_GAIN_IDEAL_PCT;
+    float sc     = 100.0f - VSENSE_SCORE_PER_PCT * (off < 0.0f ? -off : off);
+    unsigned score = (clip || sc < 0.0f) ? 0u : (unsigned)(sc + 0.5f);
+
+    snprintf(l0, sizeof(l0), "Pot setting %3u%%", score);
+    lcd_line0(l0);
+    if (peak < 0.05f)                lcd_line1("NO SIGNAL");
+    else if (score >= VSENSE_SCORE_OK) lcd_line1("OK-CAL V IN APP");
+    else if (clip || off > 0.0f)     lcd_line1("HIGH:TURN ANTICW");
+    else                             lcd_line1("LOW:TURN CLOCKW");
 }
 
 static void show_devset_menu(void)
@@ -867,7 +901,8 @@ static void menu_select(void)
             case 11:
                 edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
                 ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
-            case 12: ui = UI_MENU; break;   /* Back */
+            case 12: ui = UI_DEVSET_VSENSE; break;
+            case 13: ui = UI_MENU; break;   /* Back */
         }
         screenNeedsRefresh = true; return;
     }
@@ -894,6 +929,7 @@ static void menu_select(void)
         }
         screenNeedsRefresh = true; return;
     }
+    if (ui == UI_DEVSET_VSENSE) { ui = UI_DEVSET_MENU; screenNeedsRefresh = true; return; }
     if (ui == UI_DEVSET_EDIT_DAY)
     {
         time.dow = edit_day_idx2 + 1;
@@ -1117,6 +1153,7 @@ void Screen_HandleSwitches(void)
             case UI_DEVSET_EDIT_DATE:
             case UI_DEVSET_EDIT_TIME:
             case UI_DEVSET_EDIT_DAY:
+            case UI_DEVSET_VSENSE:
                 ui = UI_DEVSET_MENU;
                 break;
 
@@ -1591,6 +1628,7 @@ void Screen_Update(void)
         ui != UI_DASH &&
         ui != UI_COUNTDOWN &&
         ui != UI_ADD_DEVICE_PAIR &&
+        ui != UI_DEVSET_VSENSE &&   /* installer is turning the pot */
         (now - lastUserAction >= AUTO_BACK_MS))
     {
         ui = UI_DASH;
@@ -1607,6 +1645,12 @@ void Screen_Update(void)
     }
 
     if (ui == UI_COUNTDOWN && (now - lastLcdUpdateTime) >= 1000UL)
+    {
+        lastLcdUpdateTime = now;
+        screenNeedsRefresh = true;
+    }
+
+    if (ui == UI_DEVSET_VSENSE && (now - lastLcdUpdateTime) >= 500UL)
     {
         lastLcdUpdateTime = now;
         screenNeedsRefresh = true;
@@ -1726,6 +1770,7 @@ void Screen_Update(void)
             case UI_DEVSET_EDIT_TIME:       show_devset_edit_time(); break;
             case UI_DEVSET_EDIT_DAY:        show_devset_edit_day(); break;
             case UI_RESET_CONFIRM:          show_reset_confirm(); break;
+            case UI_DEVSET_VSENSE:          show_vsense(); break;
             case UI_COUNTDOWN:              show_countdown(); break;
             case UI_COUNTDOWN_EDIT_MIN:     show_countdown_edit_min(); break;
             case UI_TIMER_SLOT_SELECT:      show_timer_slot_select(); break;

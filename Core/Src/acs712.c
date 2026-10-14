@@ -11,6 +11,10 @@ float adc_rms;
 static float acs_zero_offset = 0.0f;
 static float zmpt_offset = 1.65f;
 static float last_voltage = 0.0f;
+/* Lowest / highest ZMPT sample of the last window: near 0 V or 3.3 V
+ * means the waveform is clipped and the reading cannot follow the mains */
+volatile float g_zmptMinV = 0.0f;
+volatile float g_zmptMaxV = 0.0f;
 static float last_current = 0.0f;
 static float last_raw_current = 0.0f;
 #define ACS712_GAIN_CORR  1.00f
@@ -184,15 +188,20 @@ float ZMPT_ReadVoltageRMS(void)
     float sum_dc = 0.0f;
     float sum_sq = 0.0f;
 
+    float vmin = ADC_VREF, vmax = 0.0f;
     for (int i = 0; i < ZMPT_RMS_SAMPLES; i++)
     {
         float v = adc_read(ZMPT_ADC_CHANNEL);
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
 
         sum_dc += v;
 
         float ac = v - zmpt_offset;
         sum_sq += ac * ac;
     }
+    g_zmptMinV = vmin;
+    g_zmptMaxV = vmax;
 
     float new_offset = sum_dc / ZMPT_RMS_SAMPLES;
 
