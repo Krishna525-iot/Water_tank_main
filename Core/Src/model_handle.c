@@ -1558,6 +1558,8 @@ void ModelHandle_SoftDryRunHandler(void)
 }
 
 #define LOAD_INRUSH_IGNORE_MS 3000UL    /* ignore start-up current surge  */
+#define UNDERLOAD_PRIME_MS    90000UL   /* no under-load check while the pump
+                                           primes (client 12-10, item 1 / C-01) */
 #define VOLT_RECOVER_MS       10000UL   /* supply back in range this long */
 
 #define OVERLOAD_RESTARTS_PER_DAY 3
@@ -1580,7 +1582,8 @@ static uint32_t mainsBackSince = 0;
  * hold lasts until the mains is back for 10 s.
  * Voltage is watched all the time, so a bad supply also blocks a start;
  * the fault clears once the supply is back in range for 10 s.
- * Over/under current is watched while running (after the inrush); it
+ * Over current is watched while running (after the inrush), under current
+ * only after the pump has run 90 s (priming); either
  * trips after 3 s, and the motor may start again after the testing gap. */
 void ModelHandle_CheckLoadFault(void)
 {
@@ -1634,7 +1637,8 @@ void ModelHandle_CheckLoadFault(void)
     if (motorOn && (now - motorOnStartMs) >= LOAD_INRUSH_IGNORE_MS)
     {
         over  = (sys.overload  > 0.1f)   && (I > sys.overload);
-        under = (sys.underload > 0.001f) && (I < sys.underload);
+        under = (sys.underload > 0.001f) && (I < sys.underload) &&
+                ((now - motorOnStartMs) >= UNDERLOAD_PRIME_MS);
     }
     if (over || under)
     {
