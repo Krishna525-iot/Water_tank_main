@@ -1290,10 +1290,12 @@ void ModelHandle_OnPowerUp(void)
     }
     else if (semiAutoActive)
     {
-        /* Semi-Auto runs again only if its motor was on at power loss */
-        semiAutoActive   = wasRunning;
-        motorOwner       = wasRunning ? MOTOR_OWNER_SEMIAUTO : MOTOR_OWNER_NONE;
-        semiTankFullHold = false;
+        /* Semi-Auto runs again only if its motor was on at power loss.
+         * If its run had ended (tank full, fault, max run) it stays
+         * Semi-Auto with the motor off, as before the power cut (client
+         * report 12-10, item 7 / C-02; it used to come back as READY). */
+        motorOwner       = MOTOR_OWNER_SEMIAUTO;
+        semiTankFullHold = !wasRunning;
         powerRestoreHold = false;
     }
     else if (timerActive)
