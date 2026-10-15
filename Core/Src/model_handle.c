@@ -105,9 +105,6 @@ static uint32_t starterPulseEnd   = 0;   /* 0 = relays not closed */
 
 TimerSlot timerSlots[5];
 
-static void Buzzer_TankEmptyPattern(void);
-static void Buzzer_TankFullPattern(void);
-
 volatile bool manualActive    = false;
 volatile bool semiAutoActive  = false;
 volatile bool countdownActive = false;
@@ -1079,100 +1076,131 @@ void ModelHandle_StartTimerNearestSlot(void)
     ModelHandle_SaveModeState();
 }
 
-static uint32_t buzzerPatternStart = 0;
-static bool     buzzerState        = false;
 static inline void Buzzer_SetPin(bool on)
 {
     HAL_GPIO_WritePin(LED5_GPIO_Port, LED5_Pin,
                       on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-static void Buzzer_StartEvent(BuzzerEvent ev)
-{
-    if (activeBuzzEvent == ev) return;
-    activeBuzzEvent    = ev;
-    buzzerPatternStart = HAL_GetTick();
-    buzzerState        = false;
-}
-
-#define TANK_FULL_BUZZ_MS 30000UL
+/* Client report 12-10, item 14 (C-03):
+ * - tank full / tank empty: one 15 s alert (full was 30 s);
+ * - full: a gentle 12 s reminder every 30 min, only while the motor still
+ *   runs with the tank full (Manual); ends when the motor stops or the
+ *   level drops;
+ * - empty: a gentle 12 s reminder every 30 min while the tank stays empty;
+ *   ends when the level rises. */
+#define ALARM_ALERT_MS         15000UL
+#define ALARM_REPEAT_MS      1800000UL  /* 30 min */
+#define ALARM_REMIND_MS        12000UL
+#define ALARM_REMIND_ON_MS       500UL  /* reminder: 0.5 s beep every 1.5 s */
+#define ALARM_REMIND_PERIOD_MS  1500UL
 #define PUMP_BEEP_PERIOD_MS 3000UL   /* client BUZ-01: one beep every 3 s while the motor runs */
 #define PUMP_BEEP_ON_MS      500UL
 
-static void Buzzer_TankEmptyPattern(void)
+/* The main loop only picks the pattern; the pin is switched from SysTick
+ * (Buzzer_Tick1ms), so the beeps keep an even rhythm however long a loop
+ * pass takes (the current / voltage sampling makes it uneven). */
+typedef enum { BZ_OFF = 0, BZ_ON, BZ_REMIND, BZ_PUMP } BuzzPattern;
+static volatile uint8_t  bzPattern = BZ_OFF;
+static volatile uint32_t bzPhase   = 0;   /* tick the pattern started */
+static volatile uint32_t bzUntil   = 0;   /* tick it ends, 0 = no end */
+
+static void buzz_pattern(BuzzPattern p, uint32_t phase, uint32_t until)
 {
-    uint32_t now = HAL_GetTick();
-    if ((now - buzzerPatternStart) >= 15000UL) { Buzzer_SetPin(false); activeBuzzEvent = BUZZ_NONE; return; }
-    Buzzer_SetPin(true);
+    if (bzPattern == p && bzPhase == phase) return;
+    if (bzPattern == p && p != BZ_REMIND && p != BZ_ON) return;   /* keep the pump rhythm */
+    bzPattern = BZ_OFF;
+    bzPhase   = phase;
+    bzUntil   = until;
+    bzPattern = p;
 }
 
-static void Buzzer_TankFullPattern(void)
+void Buzzer_Tick1ms(void)
 {
     uint32_t now = HAL_GetTick();
-    if ((now - buzzerPatternStart) >= TANK_FULL_BUZZ_MS) { Buzzer_SetPin(false); activeBuzzEvent = BUZZ_NONE; return; }
-    Buzzer_SetPin(true);
+    uint32_t t   = now - bzPhase;
+    bool     on;
+    if (bzUntil && (int32_t)(now - bzUntil) >= 0) on = false;
+    else switch (bzPattern)
+    {
+        case BZ_ON:     on = true; break;
+        case BZ_REMIND: on = (t % ALARM_REMIND_PERIOD_MS) < ALARM_REMIND_ON_MS; break;
+        case BZ_PUMP:   on = (t % PUMP_BEEP_PERIOD_MS) >= (PUMP_BEEP_PERIOD_MS - PUMP_BEEP_ON_MS); break;
+        default:        on = false; break;
+    }
+    Buzzer_SetPin(on);
+}
+
+static uint32_t alarmStart    = 0;
+static uint32_t alarmLen      = 0;
+static bool     alarmGentle   = false;
+static bool     alarmMotorOn  = false;  /* motor ran when the alarm began */
+static uint32_t fullRemindAt  = 0;      /* 0 = no reminder armed */
+static uint32_t emptyRemindAt = 0;
+
+static void alarm_sound(BuzzerEvent ev, uint32_t len, bool gentle)
+{
+    uint32_t now = HAL_GetTick();
+    activeBuzzEvent = ev;
+    alarmStart      = now;
+    alarmLen        = len;
+    alarmGentle     = gentle;
+    alarmMotorOn    = Motor_GetStatus();
+    uint32_t next   = now + ALARM_REPEAT_MS;
+    if (!next) next = 1;
+    if (ev == BUZZ_TANK_FULL) fullRemindAt  = next;
+    else                      emptyRemindAt = next;
+}
+
+static void Buzzer_StartEvent(BuzzerEvent ev)
+{
+    if (activeBuzzEvent == ev) return;
+    alarm_sound(ev, ALARM_ALERT_MS, false);
 }
 
 static void Buzzer_Update(void)
 {
     uint32_t now = HAL_GetTick();
-    static uint32_t motorToggleTime          = 0;
-    static bool     motorBuzzState           = false;
-    static bool     manualTankFullBuzzActive = false;
-    static uint32_t manualTankFullBuzzStart  = 0;
-    static bool     prevTankFullManual       = false;
+    static bool     prevFullRunning    = false;
     bool motorOn  = Motor_GetStatus();
     bool tankFull = isTankFull();
+    bool empty    = (get_tank_level_percent() == 0);
 
-    if (manualActive)
-    {
-        if (!motorOn)
-        {
-            Buzzer_SetPin(false);
-            motorBuzzState           = false;
-            motorToggleTime          = 0;
-            manualTankFullBuzzActive = false;
-            prevTankFullManual       = false;
-            return;
-        }
-        if (tankFull && !prevTankFullManual && buzzerSettings.tankFullSound)
-        {
-            manualTankFullBuzzActive = true;
-            manualTankFullBuzzStart  = now;
-            motorBuzzState           = false;
-            motorToggleTime          = 0;
-        }
-        prevTankFullManual = tankFull;
-        if (!tankFull && manualTankFullBuzzActive) manualTankFullBuzzActive = false;
-        if (manualTankFullBuzzActive)
-        {
-            if ((now - manualTankFullBuzzStart) < TANK_FULL_BUZZ_MS) { Buzzer_SetPin(true); return; }
-            else { manualTankFullBuzzActive = false; motorToggleTime = 0; motorBuzzState = false; }
-        }
-        if (buzzerSettings.pumpOnSound)
-        {
-            if ((now - motorToggleTime) >= (motorBuzzState ? PUMP_BEEP_ON_MS : PUMP_BEEP_PERIOD_MS - PUMP_BEEP_ON_MS)) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
-            Buzzer_SetPin(motorBuzzState);
-        }
-        else Buzzer_SetPin(false);
-        return;
-    }
-    manualTankFullBuzzActive = false;
-    prevTankFullManual       = false;
-    if (activeBuzzEvent == BUZZ_TANK_EMPTY) { Buzzer_TankEmptyPattern(); return; }
-    if (activeBuzzEvent == BUZZ_TANK_FULL)  { Buzzer_TankFullPattern();  return; }
+    /* Manual keeps the motor running at tank full: alert when it gets there
+     * (the other modes stop the motor and raise the alert themselves) */
+    bool fullRunning = manualActive && motorOn && tankFull;
+    if (fullRunning && !prevFullRunning && buzzerSettings.tankFullSound)
+        Buzzer_StartEvent(BUZZ_TANK_FULL);
+    prevFullRunning = fullRunning;
 
-    if (motorOn)
+    /* Tank full: silenced when the level drops or the motor that was
+     * running when it began stops (in Auto etc. it is already off);
+     * reminders only while the motor keeps running with the tank full */
+    if (activeBuzzEvent == BUZZ_TANK_FULL && (!tankFull || (alarmMotorOn && !motorOn)))
+        activeBuzzEvent = BUZZ_NONE;
+    if (!tankFull || !motorOn || !buzzerSettings.tankFullSound) fullRemindAt = 0;
+
+    /* Tank empty: silenced and disarmed once the level rises */
+    if (activeBuzzEvent == BUZZ_TANK_EMPTY && !empty) activeBuzzEvent = BUZZ_NONE;
+    if (!empty || !buzzerSettings.tankEmptySound) emptyRemindAt = 0;
+
+    if (activeBuzzEvent == BUZZ_NONE)
     {
-        if (buzzerSettings.pumpOnSound)
-        {
-            if ((now - motorToggleTime) >= (motorBuzzState ? PUMP_BEEP_ON_MS : PUMP_BEEP_PERIOD_MS - PUMP_BEEP_ON_MS)) { motorToggleTime = now; motorBuzzState = !motorBuzzState; }
-            Buzzer_SetPin(motorBuzzState);
-        }
-        else Buzzer_SetPin(false);
-        return;
+        if (fullRemindAt && (int32_t)(now - fullRemindAt) >= 0)
+            alarm_sound(BUZZ_TANK_FULL, ALARM_REMIND_MS, true);
+        else if (emptyRemindAt && (int32_t)(now - emptyRemindAt) >= 0)
+            alarm_sound(BUZZ_TANK_EMPTY, ALARM_REMIND_MS, true);
     }
-    Buzzer_SetPin(false);
+
+    if (activeBuzzEvent != BUZZ_NONE && (now - alarmStart) >= alarmLen)
+        activeBuzzEvent = BUZZ_NONE;
+
+    if (activeBuzzEvent != BUZZ_NONE)
+        buzz_pattern(alarmGentle ? BZ_REMIND : BZ_ON, alarmStart, alarmStart + alarmLen);
+    else if (motorOn && buzzerSettings.pumpOnSound)
+        buzz_pattern(BZ_PUMP, now, 0);
+    else
+        buzz_pattern(BZ_OFF, now, 0);
 }
 
 static inline uint32_t now_ms(void) { return HAL_GetTick(); }

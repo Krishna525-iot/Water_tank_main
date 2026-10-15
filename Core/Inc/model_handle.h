@@ -89,6 +89,7 @@ bool ModelHandle_IsDryRunActive(void);
 bool ModelHandle_IsVoltageFault(void);
 bool ModelHandle_IsMaxRunReached(void);
 uint32_t ModelHandle_GetMotorRunSeconds(void);
+void     Buzzer_Tick1ms(void);   /* from SysTick: drives the buzzer pin */
 void ModelHandle_SetDryRun(bool on);
 float    ModelHandle_GetOverloadLimit(void);
 void ModelHandle_SetOverLoad(bool on);
