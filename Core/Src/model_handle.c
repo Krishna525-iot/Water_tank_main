@@ -81,9 +81,10 @@ static bool     manualPausedByUser  = false;  /* Manual switched off with the bu
 /* Relay2 / Relay3 give a 2 s push to an external starter panel
  * (start push when the motor relay closes, stop push when it opens). */
 /* Starter panel (client GEN-07): every motor start, relay 2 and relay 3
- * close together for 2 s, 7 s after relay 1 switched ON. No pulse at
+ * close together for 2 s, 15 s after relay 1 switched ON (was 7 s;
+ * client report 12-10, S2-2 / C-07). No pulse at
  * stop; if the motor stops before the pulse it is dropped (DEC-12 a). */
-#define STARTER_DELAY_MS 7000UL
+#define STARTER_DELAY_MS 15000UL
 #define STARTER_PULSE_MS 2000UL
 static uint32_t starterPulseStart = 0;   /* 0 = no pulse pending */
 static uint32_t starterPulseEnd   = 0;   /* 0 = relays not closed */
