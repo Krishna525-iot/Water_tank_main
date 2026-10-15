@@ -823,7 +823,12 @@ static uint8_t get_tank_level_percent(void)
         return stableLevel;
     }
 
-    if (rawLevel != stableLevel)
+    /* Back at the stable level: drop the candidate, so a short touch of a
+     * probe (splash, noise) does not leave an old start time behind and a
+     * later real change skip the 10 s wait (same as the transmitter) */
+    if (rawLevel == stableLevel)
+        candidateLevel = stableLevel;
+    else
     {
         if (rawLevel != candidateLevel)
         {
