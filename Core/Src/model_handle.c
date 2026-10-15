@@ -1408,34 +1408,29 @@ static inline void start_motor(void)
 
 static inline void stop_motor(void) { motor_apply(false); }
 
-static uint32_t maxRunLockUntil = 0;
-
-/* Max run is an off key in every mode. Refill and Countdown end (the
- * previous mode continues), Semi-Auto ends, Manual stays shown with the
- * motor off; Auto/Timer/Twist may run again after the testing gap. */
+/* Max run is an off key in every mode. Refill ends (the previous mode
+ * continues), Semi-Auto ends, Manual stays shown with the motor off,
+ * Countdown pauses.
+ * Client report 12-10, S2-1 (C-06): after Max Run nothing restarts the
+ * motor by itself - no level start, timer slot, retry or countdown
+ * resume. Only a user command (mode button / app ON) or a mains power
+ * cycle (RAM cleared) unlocks it; until then Motor_StartAllowed() is
+ * false and the LCD shows MAX RUN. (Before: unlocked after the testing
+ * gap.) */
 static void check_max_run(void)
 {
     uint32_t now = HAL_GetTick();
-
-    if (senseMaxRunReached && maxRunLockUntil && !Motor_GetStatus() &&
-        (int32_t)(now - maxRunLockUntil) >= 0)
-    {
-        senseMaxRunReached = false;
-        maxRunLockUntil    = 0;
-    }
 
     if (sys.maxrun_min == 0 || !Motor_GetStatus()) return;
     uint32_t limit = (uint32_t)sys.maxrun_min * 60000UL;
     if ((now - motorOnStartMs) < limit) return;
 
     senseMaxRunReached = true;
-    maxRunLockUntil    = now + get_test_gap_ms();
-    if (maxRunLockUntil == 0) maxRunLockUntil = 1;
     stop_motor();
     dryState = DRY_IDLE;
 
     if (restartActive)   ModelHandle_StopRestart();
-    if (countdownActive) countdown_pause(false);   /* resumes after the lock (CD-06) */
+    if (countdownActive) countdown_pause(false);   /* resumes only with button 4 (C-06) */
     if (manualActive)
     {
         manualActive       = false;
