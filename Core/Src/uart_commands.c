@@ -61,12 +61,14 @@ void UART_SendStatusPacket(void)
 
 /* Live data for the app, sent every second (client DEC-16: other data
  * refreshes every 1 s):
- * @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss>:<run s># -
- * run s = seconds the motor has run, -1 while it is off (N-03) */
+ * @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss>:<run s>:<fault># -
+ * run s = seconds the motor has run, -1 while it is off (N-03);
+ * fault = what the LCD shows as the stop reason (MAX RUN, HIGH VOLT, ...),
+ * else CLOCK LOST, else empty (client report 12-10, item 5 / N-02) */
 extern volatile bool groundWater;
 void UART_SendLivePacket(void)
 {
-    char buf[64];
+    char buf[72];
     char clk[9];
     if (!RTC_IsTimeValid())   /* clock lost (B-10): the app shows --:--:-- */
         snprintf(clk, sizeof(clk), "--:--:--");
@@ -74,9 +76,11 @@ void UART_SendLivePacket(void)
         snprintf(clk, sizeof(clk), "%02u:%02u:%02u",
                  time.hour % 100u, time.min % 100u, time.sec % 100u);
     long run = Motor_GetStatus() ? (long)ModelHandle_GetMotorRunSeconds() : -1L;
-    snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%s:%ld#",
+    const char *fault = ModelHandle_GetStopReason();
+    if (!fault) fault = RTC_IsTimeValid() ? "" : "CLOCK LOST";
+    snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%s:%ld:%s#",
              (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
-             groundWater ? 1u : 0u, senseDryRun ? 1u : 0u, clk, run);
+             groundWater ? 1u : 0u, senseDryRun ? 1u : 0u, clk, run, fault);
     UART_TransmitPacket(buf);
 }
 

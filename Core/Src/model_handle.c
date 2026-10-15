@@ -3030,6 +3030,20 @@ bool ModelHandle_IsUnderload(void)      { return senseUnderLoad; }
 bool ModelHandle_IsDryRunActive(void)   { return senseDryRun; }
 bool ModelHandle_IsVoltageFault(void)   { return senseOverUnderVolt; }
 bool ModelHandle_IsMaxRunReached(void)  { return senseMaxRunReached; }
+
+/* Why the motor is off - the protection that stopped it, or NULL. One
+ * source for LCD line 2 (B-03) and the app's Fault box (@LIVE). */
+const char *ModelHandle_GetStopReason(void)
+{
+    if (Motor_GetStatus())        return NULL;
+    if (senseMaxRunReached)       return "MAX RUN";
+    if (senseOverUnderVolt)
+        return (sys.ov_limit && g_voltageV > (float)sys.ov_limit) ? "HIGH VOLT" : "LOW VOLT";
+    if (senseOverLoad)            return "OVERLOAD";
+    if (senseUnderLoad)           return "UNDERLOAD";
+    if (dryState == DRY_FAULT)    return "DRY RUN";
+    return NULL;
+}
 /* Seconds since the motor relay switched on, 0 while it is off (N-03) */
 uint32_t ModelHandle_GetMotorRunSeconds(void)
 {
