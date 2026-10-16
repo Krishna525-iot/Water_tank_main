@@ -186,7 +186,7 @@ static uint8_t menu_view_top = 0;
 
 static const char* const devset_menu_items[] = {
     "Dry Run En","Test Time","Retry Gap","Low Volt","High Volt",
-    "Over Load","Under Load","Max Run","Set Date","Set Time","Set Day",
+    "Over Load","Under Load","Max Run","Set Time","Set Day",
     "Power Restore","V Sensor Adj","Back"   /* Factory reset only in the main menu (with YES/NO), B-04 */
 };
 #define DEVSET_MENU_COUNT  (sizeof(devset_menu_items)/sizeof(devset_menu_items[0]))
@@ -489,7 +489,7 @@ static void show_devset_menu(void)
             case 5: if (edit_settings_ol > 0)       *star = '*'; break;
             case 6: if (edit_settings_ul > 0)       *star = '*'; break;
             case 7: if (edit_settings_maxrun > 0)   *star = '*'; break;
-            case 11: if (edit_settings_pwrrest == 0) *star = '*'; break;   /* 0 = ON */
+            case 10: if (edit_settings_pwrrest == 0) *star = '*'; break;   /* 0 = ON */
             default: break;
         }
     }
@@ -883,14 +883,15 @@ static void menu_select(void)
             case 5:  edit_settings_ol      = (edit_settings_ol      > 0) ? 0 : 25;  apply_settings_core(); break;
             case 6:  edit_settings_ul      = (edit_settings_ul      > 0) ? 0 : 2;   apply_settings_core(); break;
             case 7:  edit_settings_maxrun  = (edit_settings_maxrun  > 0) ? 0 : 150; apply_settings_core(); break;
-            case 8:  ui = UI_DEVSET_EDIT_DATE; break;
-            case 9:  ui = UI_DEVSET_EDIT_TIME; break;
-            case 10: ui = UI_DEVSET_EDIT_DAY;  break;
-            case 11:
+            /* No "Set Date" (user 16-10): the date is set from the app with
+             * the phone's clock (auto sync / Set from phone) */
+            case 8:  ui = UI_DEVSET_EDIT_TIME; break;
+            case 9:  ui = UI_DEVSET_EDIT_DAY;  break;
+            case 10:
                 edit_settings_pwrrest = edit_settings_pwrrest ? 0 : 1;   /* 0 = ON, 1 = OFF */
                 ModelHandle_SetPowerRestoreMode(edit_settings_pwrrest); break;
-            case 12: ui = UI_DEVSET_VSENSE; break;
-            case 13: ui = UI_MENU; break;   /* Back */
+            case 11: ui = UI_DEVSET_VSENSE; break;
+            case 12: ui = UI_MENU; break;   /* Back */
         }
         screenNeedsRefresh = true; return;
     }
