@@ -29,6 +29,10 @@ static float last_raw_current = 0.0f;
 #define EE_ADDR_CAL_BLOCK  0x0900
 #define CAL_SIG            0xCA1C   /* 0xCA1B: gain was for the 30A scale */
 #define CAL_SIG_OLD        0xCA1B
+/* Voltage factor range. Up to 2000: with the pot at the low end of the
+ * V Sensor Adj OK band the factor is ~1100, which 1000 refused. */
+#define VFACTOR_MIN        50.0f
+#define VFACTOR_MAX        2000.0f
 
 typedef struct __attribute__((packed)) {
     uint16_t sig;
@@ -72,7 +76,7 @@ static void cal_load(void)
     EEPROM_ReadBuffer(EE_ADDR_CAL_BLOCK, (uint8_t*)&b, sizeof(b));
     if (b.crc != cal_crc((uint8_t*)&b, sizeof(b) - 2)) return;
     if (b.sig != CAL_SIG && b.sig != CAL_SIG_OLD) return;
-    if (b.vFactor > 50.0f && b.vFactor < 1000.0f) zmpt_factor = b.vFactor;
+    if (b.vFactor > VFACTOR_MIN && b.vFactor < VFACTOR_MAX) zmpt_factor = b.vFactor;
     /* An old block's current gain was made for the 30A scale: keep only its voltage */
     if (b.sig == CAL_SIG && b.iGain > 0.1f && b.iGain < 10.0f) acs_gain = b.iGain;
 }
@@ -183,10 +187,25 @@ void ACS712_Init(ADC_HandleTypeDef *hadc)
 /* -------------------------------------------------------
    TRUE RMS VOLTAGE READ (ZMPT101B)
 -------------------------------------------------------- */
+/* Samples between the first and the last rising zero crossing of the
+ * last window (whole mains cycles); 0 = no two crossings, whole window */
+volatile uint16_t g_zmptCycleSamples = 0;
+
 float ZMPT_ReadVoltageRMS(void)
 {
     float sum_dc = 0.0f;
     float sum_sq = 0.0f;
+
+    /* The RMS is taken over whole mains cycles only (first to last
+     * rising crossing of the centre). The window is not a whole number of
+     * cycles, and the part-cycle at its ends made the reading jump
+     * ~15 V from one window to the next (client 16-10: the voltage must
+     * follow the mains like a meter). */
+    const float off  = zmpt_offset;
+    const float hyst = 0.02f;
+    bool  armed = false;
+    int   n1 = -1, n2 = -1;
+    float dc1 = 0.0f, sq1 = 0.0f, dc2 = 0.0f, sq2 = 0.0f;
 
     float vmin = ADC_VREF, vmax = 0.0f;
     for (int i = 0; i < ZMPT_RMS_SAMPLES; i++)
@@ -195,22 +214,40 @@ float ZMPT_ReadVoltageRMS(void)
         if (v < vmin) vmin = v;
         if (v > vmax) vmax = v;
 
+        if (v < off - hyst) armed = true;
+        else if (armed && v >= off)            /* rising crossing */
+        {
+            armed = false;
+            if (n1 < 0) { n1 = i; dc1 = sum_dc; sq1 = sum_sq; }
+            else        { n2 = i; dc2 = sum_dc; sq2 = sum_sq; }
+        }
+
         sum_dc += v;
 
-        float ac = v - zmpt_offset;
+        float ac = v - off;
         sum_sq += ac * ac;
     }
     g_zmptMinV = vmin;
     g_zmptMaxV = vmax;
 
-    float new_offset = sum_dc / ZMPT_RMS_SAMPLES;
+    int n = ZMPT_RMS_SAMPLES;
+    if (n1 >= 0 && n2 > n1)
+    {
+        n      = n2 - n1;
+        sum_dc = dc2 - dc1;
+        sum_sq = sq2 - sq1;
+        g_zmptCycleSamples = (uint16_t)n;
+    }
+    else g_zmptCycleSamples = 0;
+
+    float new_offset = sum_dc / n;
 
     /* RMS about this window's own mean: the boot offset comes from 300
        samples (< one 50 Hz cycle), so it can be far off and made a false
        VOLTAGE ERROR after power-on. Removing (mean - offset)^2 makes the
        reading independent of the stored offset. */
-    float dc_err = new_offset - zmpt_offset;
-    float ms     = sum_sq / ZMPT_RMS_SAMPLES - dc_err * dc_err;
+    float dc_err = new_offset - off;
+    float ms     = sum_sq / n - dc_err * dc_err;
 
     zmpt_offset = (zmpt_offset * 0.90f) + (new_offset * 0.10f);
 
@@ -282,7 +319,7 @@ bool ACS712_CalibrateVoltage(float actualVolts)
     if (g_voltageV < 20.0f) return false;          /* no mains reading to scale */
 
     float f = zmpt_factor * actualVolts / g_voltageV;
-    if (f <= 50.0f || f >= 1000.0f) return false;
+    if (f <= VFACTOR_MIN || f >= VFACTOR_MAX) return false;
 
     zmpt_factor  = f;
     last_voltage = actualVolts;

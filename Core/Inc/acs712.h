@@ -23,8 +23,10 @@ extern float g_voltageV;   // Volts
 /* ---------------- ZMPT101B VOLTAGE ------------------ */
 #define ZMPT_ADC_CHANNEL       ADC_CHANNEL_6
 #define ZMPT_OFFSET_SAMPLES    300
-#define ZMPT_RMS_SAMPLES       800
-#define ZMPT_FILTER_ALPHA      0.15f
+#define ZMPT_RMS_SAMPLES       2000    /* >2 mains cycles: RMS over whole cycles */
+#define ZMPT_FILTER_ALPHA      0.5f    /* was 0.15: took 5-7 s to follow the mains;
+                                          now ~1 s, like a meter (client 16-10).
+                                          Trips still need 3 s confirm. */
 
 /* -----------------------------------------------------
    Default voltage factor (Vrms = ADC_RMS * factor). Used until the
