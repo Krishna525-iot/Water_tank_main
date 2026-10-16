@@ -29,7 +29,8 @@ typedef enum
 {
     BUZZ_NONE = 0,
     BUZZ_TANK_FULL,
-    BUZZ_TANK_EMPTY
+    BUZZ_TANK_EMPTY,
+    BUZZ_MAX_RUN
 } BuzzerEvent;
 
 static BuzzerEvent activeBuzzEvent = BUZZ_NONE;
@@ -1090,6 +1091,7 @@ static inline void Buzzer_SetPin(bool on)
  * - empty: a gentle 12 s reminder every 30 min while the tank stays empty;
  *   ends when the level rises. */
 #define ALARM_ALERT_MS         15000UL
+#define ALARM_MAXRUN_MS        10000UL  /* N-09: Max Run stop, no reminder */
 #define ALARM_REPEAT_MS      1800000UL  /* 30 min */
 #define ALARM_REMIND_MS        12000UL
 #define ALARM_REMIND_ON_MS       500UL  /* reminder: 0.5 s beep every 1.5 s */
@@ -1148,8 +1150,8 @@ static void alarm_sound(BuzzerEvent ev, uint32_t len, bool gentle)
     alarmMotorOn    = Motor_GetStatus();
     uint32_t next   = now + ALARM_REPEAT_MS;
     if (!next) next = 1;
-    if (ev == BUZZ_TANK_FULL) fullRemindAt  = next;
-    else                      emptyRemindAt = next;
+    if      (ev == BUZZ_TANK_FULL)  fullRemindAt  = next;
+    else if (ev == BUZZ_TANK_EMPTY) emptyRemindAt = next;
 }
 
 static void Buzzer_StartEvent(BuzzerEvent ev)
@@ -1179,6 +1181,9 @@ static void Buzzer_Update(void)
     if (activeBuzzEvent == BUZZ_TANK_FULL && (!tankFull || (alarmMotorOn && !motorOn)))
         activeBuzzEvent = BUZZ_NONE;
     if (!tankFull || !motorOn || !buzzerSettings.tankFullSound) fullRemindAt = 0;
+
+    /* Max Run: silenced once the user runs the motor again */
+    if (activeBuzzEvent == BUZZ_MAX_RUN && motorOn) activeBuzzEvent = BUZZ_NONE;
 
     /* Tank empty: silenced and disarmed once the level rises */
     if (activeBuzzEvent == BUZZ_TANK_EMPTY && !empty) activeBuzzEvent = BUZZ_NONE;
@@ -1428,6 +1433,9 @@ static void check_max_run(void)
     if ((now - motorOnStartMs) < limit) return;
 
     senseMaxRunReached = true;
+    /* Client report 12-10, S2-3 (N-09): 10 s buzzer at every Max Run stop,
+     * whatever the buzzer settings (safety alert) */
+    alarm_sound(BUZZ_MAX_RUN, ALARM_MAXRUN_MS, false);
     stop_motor();
     dryState = DRY_IDLE;
 
