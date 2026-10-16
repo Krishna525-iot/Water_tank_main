@@ -2,6 +2,7 @@
 #define MODEL_HANDLE_H
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "adc.h"
 #include "eeprom_i2c.h"
 typedef struct __attribute__((packed)) {
@@ -90,6 +91,7 @@ bool ModelHandle_IsVoltageFault(void);
 bool ModelHandle_IsMaxRunReached(void);
 uint32_t ModelHandle_GetMotorRunSeconds(void);
 const char *ModelHandle_GetStopReason(void);   /* NULL = no fault stopped the motor */
+void ModelHandle_GetFaultList(char *buf, size_t len);   /* all faults, "A,B" */
 void     Buzzer_Tick1ms(void);   /* from SysTick: drives the buzzer pin */
 void ModelHandle_SetDryRun(bool on);
 float    ModelHandle_GetOverloadLimit(void);

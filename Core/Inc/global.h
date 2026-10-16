@@ -41,4 +41,12 @@ extern RfRxData_t g_rfRxData;
 /* ── Wireless mode (defined in main.c; read by adc.c) ────────────────── */
 extern uint8_t g_wireless_mode;
 
+/* Level source chosen by the user (client report 12-10, item 21 / N-08):
+ * wired = the Main board's own probes, wireless = the LoRa transmitter.
+ * Saved in EEPROM, applied at once. */
+#define LEVEL_SOURCE_WIRED     0u   /* = WIRELESS_MODE_LOCAL */
+#define LEVEL_SOURCE_WIRELESS  1u   /* = WIRELESS_MODE_LORA  */
+bool    Sense_SetSource(uint8_t source);
+uint8_t Sense_GetSource(void);
+
 #endif /* GLOBAL_H */

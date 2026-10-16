@@ -27,6 +27,7 @@
 #include "relay.h"
 #include "acs712.h"
 #include "device_id.h"
+#include "eeprom_i2c.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -73,7 +74,50 @@ RfRxData_t g_rfRxData = {0};
 
 /* ── Wireless mode — FILE-SCOPE GLOBAL ──────────────────────────────── *
  *  adc.c reads it via `extern uint8_t g_wireless_mode;`.                 */
-uint8_t g_wireless_mode = WIRELESS_MODE_LORA;   /* ← CHANGE HERE */
+uint8_t g_wireless_mode = WIRELESS_MODE_LORA;   /* default; the user's choice
+                                                   is loaded from EEPROM (N-08) */
+
+/* ── Level source setting (N-08): LOCAL (wired probes) or LORA ─────────── */
+#define EE_ADDR_SENSE_SRC  0x0A00u
+#define SENSE_SIG          0x5E45u
+typedef struct __attribute__((packed)) {
+    uint16_t sig;
+    uint8_t  mode;
+    uint8_t  inv;     /* ~mode, as a check */
+} SenseBlock;
+static bool s_loraReady = false;   /* LoRa radio initialised */
+
+static void sense_load(void)
+{
+    SenseBlock b;
+    EEPROM_ReadBuffer(EE_ADDR_SENSE_SRC, (uint8_t *)&b, sizeof(b));
+    if (b.sig == SENSE_SIG && (uint8_t)~b.mode == b.inv &&
+        (b.mode == WIRELESS_MODE_LOCAL || b.mode == WIRELESS_MODE_LORA))
+        g_wireless_mode = b.mode;
+}
+
+/* Switches at once: the radio is started if it was not running; in LOCAL
+ * mode LoRa_Task() is simply not called. */
+bool Sense_SetSource(uint8_t source)
+{
+    if (source != WIRELESS_MODE_LOCAL && source != WIRELESS_MODE_LORA) return false;
+    if (source == WIRELESS_MODE_LORA && !s_loraReady)
+    {
+        LoRa_Init();
+        loraMode    = LORA_MODE_RECEIVER;
+        s_loraReady = true;
+    }
+    g_wireless_mode = source;
+    SenseBlock b = { SENSE_SIG, source, (uint8_t)~source };
+    EEPROM_WriteBuffer(EE_ADDR_SENSE_SRC, (uint8_t *)&b, sizeof(b));
+    return true;
+}
+
+uint8_t Sense_GetSource(void)
+{
+    return (g_wireless_mode == WIRELESS_MODE_LOCAL) ? WIRELESS_MODE_LOCAL
+                                                    : WIRELESS_MODE_LORA;
+}
 
 /* ── Status timer ───────────────────────────────────────────────────── */
 static uint32_t lastStatusUpdate = 0u;
@@ -188,13 +232,16 @@ int main(void)
 
     ADC_Init(&hadc1);
 
+    sense_load();   /* user's level source (N-08) */
+
     /* ── Radio init — ONLY for the selected mode ─────────────────── */
     switch (g_wireless_mode)
     {
         case WIRELESS_MODE_LORA:
         {
             LoRa_Init();
-            loraMode = LORA_MODE_RECEIVER;
+            loraMode    = LORA_MODE_RECEIVER;
+            s_loraReady = true;
             UART_PrintLn("[INIT] LoRa: SX1278 on PB3/4/5 (SPI1 remapped)");
             UART_PrintLn("[INIT] LoRa: NSS=PA15  RST=PB6  DIO0=PB7");
             UART_PrintLn("[INIT] LoRa: RX continuous — awaiting TX packets");

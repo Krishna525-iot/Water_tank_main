@@ -4,6 +4,8 @@
 #include "relay.h"
 #include "rtc_i2c.h"
 #include "acs712.h"
+#include "global.h"
+#include "lora.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -63,21 +65,22 @@ void UART_SendStatusPacket(void)
  * refreshes every 1 s):
  * @LIVE:<volts>:<amps>:<gw 0/1>:<dry water 0/1>:<hh>:<mm>:<ss>:<run s>:<fault># -
  * run s = seconds the motor has run, -1 while it is off (N-03);
- * fault = what the LCD shows as the stop reason (MAX RUN, HIGH VOLT, ...),
- * else CLOCK LOST, else empty (client report 12-10, item 5 / N-02) */
+ * fault = every active fault, most important first, comma separated
+ * (MAX RUN,HIGH VOLT,...,NO SIGNAL,CLOCK LOST), empty when none - the LCD
+ * shows only the first (client report 12-10, item 5 / N-02; user 16-10) */
 extern volatile bool groundWater;
 void UART_SendLivePacket(void)
 {
-    char buf[72];
+    char buf[144];
     char clk[9];
+    char fault[80];
     if (!RTC_IsTimeValid())   /* clock lost (B-10): the app shows --:--:-- */
         snprintf(clk, sizeof(clk), "--:--:--");
     else
         snprintf(clk, sizeof(clk), "%02u:%02u:%02u",
                  time.hour % 100u, time.min % 100u, time.sec % 100u);
     long run = Motor_GetStatus() ? (long)ModelHandle_GetMotorRunSeconds() : -1L;
-    const char *fault = ModelHandle_GetStopReason();
-    if (!fault) fault = RTC_IsTimeValid() ? "" : "CLOCK LOST";
+    ModelHandle_GetFaultList(fault, sizeof(fault));
     snprintf(buf, sizeof(buf), "@LIVE:%u:%.1f:%u:%u:%s:%ld:%s#",
              (unsigned)(g_voltageV + 0.5f), (double)g_currentA,
              groundWater ? 1u : 0u, senseDryRun ? 1u : 0u, clk, run, fault);
@@ -154,7 +157,7 @@ static void send_settings(void)
     char buf[160];
     snprintf(buf, sizeof(buf),
         "@SETTINGS_DATA:D=%u;T=%u;RC=%u;M=%u;LV=%u;HV=%u;OL=%d;UL=%d;PR=%u;DE=%u;"
-        "BZ=%u;BF=%u;BE=%u;CD=%u#",
+        "BZ=%u;BF=%u;BE=%u;CD=%u;SRC=%u#",
         (unsigned)(ModelHandle_GetGapTime() / 60),
         (unsigned)(ModelHandle_GetDryRunRetryGap() / 60),
         (unsigned)ModelHandle_GetRetryCount(),
@@ -168,7 +171,8 @@ static void send_settings(void)
         (unsigned)ModelHandle_GetBuzzerPumpOnSound(),
         (unsigned)ModelHandle_GetBuzzerTankFullSound(),
         (unsigned)ModelHandle_GetBuzzerTankEmptySound(),
-        (unsigned)ModelHandle_GetCountdownDefaultMin());
+        (unsigned)ModelHandle_GetCountdownDefaultMin(),
+        (unsigned)Sense_GetSource());   /* 0 = wired, 1 = wireless (N-08) */
     UART_TransmitPacket(buf);
 }
 
@@ -282,6 +286,23 @@ void UART_HandleCommand(const char *pkt)
         if (!sub || strcmp(sub, "RESET")) { err("@FORMAT#"); return; }
         ModelHandle_FactoryReset();
         ack("@FACTORY_RESET_OK#");
+        send_settings();
+        return;
+    }
+    /* SOURCE:WIRED | SOURCE:WIRELESS | SOURCE:GET - where the tank level
+     * comes from (N-08). Answers @SOURCE_OK# / @SOURCE_ERR#, then the
+     * settings (SRC=0/1) so the app shows what the device now uses. */
+    if (!strcmp(cmd, "SOURCE"))
+    {
+        char *sub = next_token(&ctx);
+        if (!sub) { err("@FORMAT#"); return; }
+        if (strcmp(sub, "GET"))
+        {
+            bool ok = false;
+            if      (!strcmp(sub, "WIRED"))    ok = Sense_SetSource(LEVEL_SOURCE_WIRED);
+            else if (!strcmp(sub, "WIRELESS")) ok = Sense_SetSource(LEVEL_SOURCE_WIRELESS);
+            ack(ok ? "@SOURCE_OK#" : "@SOURCE_ERR#");
+        }
         send_settings();
         return;
     }

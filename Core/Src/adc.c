@@ -304,6 +304,11 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
      *  The switch is driven by g_wireless_mode (global in main.c).
      *  Each case is completely independent — no cross-mode fallback.
      * ════════════════════════════════════════════════════════════════ */
+    {
+        /* Source changed from the app (N-08): drop the held wireless level */
+        static uint8_t s_prevMode = 0xFFu;
+        if (g_wireless_mode != s_prevMode) { s_wlHaveData = false; s_prevMode = g_wireless_mode; }
+    }
     switch (g_wireless_mode)
     {
         /* ── Mode 0: LOCAL ────────────────────────────────────────── *
@@ -336,8 +341,13 @@ void ADC_ReadAllChannels(ADC_HandleTypeDef *hadc, ADC_Data *data)
             }
             else
             {
-                /* No transmitter heard yet → local probes (Step 1 values) */
-                log_source_change(ADC_SRC_LOCAL, 0u, 0u);
+                /* No transmitter heard yet. The user chose wireless (N-08),
+                 * so the Main board's own probe inputs are NOT read - they
+                 * float when nothing is wired and gave false 100 %. Level 0,
+                 * well "water" (no false DRY RUN before the first packet);
+                 * LCD / app show NO SIGNAL. */
+                inject_wireless_level(data, 0u, 0u);
+                log_source_change(ADC_SRC_LORA, 0u, 0u);
             }
         }
         break;
@@ -476,5 +486,6 @@ const char *ADC_GetActiveSourceString(void)
 
 bool ADC_LevelFromWireless(void)
 {
-    return s_wlHaveData;
+    /* Wired probes get the Main Controller's 10 s stable time */
+    return (g_wireless_mode != WIRELESS_MODE_LOCAL) && s_wlHaveData;
 }

@@ -7,6 +7,7 @@
 #include "uart_commands.h"
 #include "stm32f1xx_hal.h"
 #include "eeprom_i2c.h"
+#include "lora.h"
 #include "main.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -1405,11 +1406,26 @@ static void starter_relays_tick(void)
 
 bool Motor_GetStatus(void) { return Motor_IsRelayOn(); }
 
+/* N-08 (user 16-10, option a): with the wireless source and no transmitter
+ * data the tank level is not known, so the level-driven modes - Auto,
+ * Semi-Auto, Refill - may not run the motor (tank full could not stop
+ * it). Manual is the user's own call and still runs. */
+static bool level_unknown(void)
+{
+    return Sense_GetSource() == LEVEL_SOURCE_WIRELESS && !LoRa_IsWirelessDataValid();
+}
+static bool owner_needs_level(void)
+{
+    return motorOwner == MOTOR_OWNER_AUTO || motorOwner == MOTOR_OWNER_SEMIAUTO ||
+           motorOwner == MOTOR_OWNER_RESTART;
+}
+
 static inline void start_motor(void)
 {
     if (HAL_GetTick() < bootStartBlockUntil) return;
     if (motorOwner == MOTOR_OWNER_NONE) return;
     if (dryState == DRY_FAULT && motorOwner != MOTOR_OWNER_MANUAL) return;
+    if (owner_needs_level() && level_unknown()) return;
     motor_apply(true);
 }
 
@@ -2798,6 +2814,10 @@ void ModelHandle_Process(void)
         if (buzzerSettings.tankEmptySound) Buzzer_StartEvent(BUZZ_TANK_EMPTY);
     prevLevel = currentLevel;
 
+    /* Transmitter lost while Auto / Semi / Refill runs: stop (N-08 a) */
+    if (owner_needs_level() && level_unknown() && Motor_GetStatus())
+        stop_motor();
+
     switch (motorOwner)
     {
         case MOTOR_OWNER_RESTART:
@@ -3050,7 +3070,34 @@ const char *ModelHandle_GetStopReason(void)
     if (senseOverLoad)            return "OVERLOAD";
     if (senseUnderLoad)           return "UNDERLOAD";
     if (dryState == DRY_FAULT)    return "DRY RUN";
+    if (owner_needs_level() && level_unknown()) return "NO SIGNAL";   /* fits LCD line 2 */
     return NULL;
+}
+
+/* Every active fault for the app, most important first, comma separated
+ * ("" = none). The LCD has one line and shows only GetStopReason(); the
+ * app shows them all, so a second fault is not hidden (user 16-10). */
+void ModelHandle_GetFaultList(char *buf, size_t len)
+{
+    const char *f[8];
+    uint8_t n = 0;
+    if (senseMaxRunReached) f[n++] = "MAX RUN";
+    if (senseOverUnderVolt)
+        f[n++] = (sys.ov_limit && g_voltageV > (float)sys.ov_limit) ? "HIGH VOLT" : "LOW VOLT";
+    if (senseOverLoad)          f[n++] = "OVERLOAD";
+    if (senseUnderLoad)         f[n++] = "UNDERLOAD";
+    if (dryState == DRY_FAULT)  f[n++] = "DRY RUN";
+    if (level_unknown())        f[n++] = "NO SIGNAL";   /* any mode: info */
+    if (!RTC_IsTimeValid())     f[n++] = "CLOCK LOST";
+
+    size_t used = 0;
+    if (len) buf[0] = '\0';
+    for (uint8_t i = 0; i < n && used + 1 < len; i++)
+    {
+        int w = snprintf(buf + used, len - used, "%s%s", i ? "," : "", f[i]);
+        if (w < 0) break;
+        used += (size_t)w;
+    }
 }
 /* Seconds since the motor relay switched on, 0 while it is off (N-03) */
 uint32_t ModelHandle_GetMotorRunSeconds(void)
