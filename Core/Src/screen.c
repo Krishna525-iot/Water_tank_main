@@ -147,7 +147,7 @@ static uint8_t  edit_twist_off_mm    = 0;
 static uint16_t edit_countdown_min   = 1;
 
 static uint16_t edit_settings_gap_s     = 10;
-static uint8_t  edit_settings_retry     = 3;
+static uint16_t edit_settings_retry     = 3;   /* testing gap, min (up to 300) */
 static uint16_t edit_settings_uv        = 180;
 static uint16_t edit_settings_ov        = 260;
 static int      edit_settings_ol        = 6;
@@ -821,22 +821,19 @@ static void start_settings_edit_flow(void)
     edit_settings_dry_en = ModelHandle_GetDryRunEnable() ? 1 : 0;
     {
         uint16_t dry_s = ModelHandle_GetDryRunRetryGap();
-        edit_settings_retry = (dry_s == 0) ? 5 : (uint8_t)(dry_s / 60);
+        edit_settings_retry = (dry_s == 0) ? 5 : (uint16_t)(dry_s / 60);
         if (edit_settings_retry < 1)   edit_settings_retry = 1;
-        if (edit_settings_retry > 180) edit_settings_retry = 180;
+        if (edit_settings_retry > 300) edit_settings_retry = 300;
     }
-    edit_settings_uv = ModelHandle_GetUnderVolt();
-    if (edit_settings_uv && edit_settings_uv < 150) edit_settings_uv = 150;
-    if (edit_settings_uv > 200) edit_settings_uv = 200;
-    edit_settings_ov = ModelHandle_GetOverVolt();
-    if (edit_settings_ov && edit_settings_ov < 250) edit_settings_ov = 250;
-    if (edit_settings_ov > 300) edit_settings_ov = 300;
-    edit_settings_ol = (int)ModelHandle_GetOverloadLimit();
-    if (edit_settings_ol > 25) edit_settings_ol = 25;
-    edit_settings_ul = (int)ModelHandle_GetUnderloadLimit();
-    if (edit_settings_ul > 10) edit_settings_ul = 10;
+    /* Taken as stored, not clamped to the LCD edit ranges: every Device
+     * Setup toggle writes all of them back (apply_settings_core), so a
+     * clamp here silently changed limits set from the app (e.g. Max Run
+     * 600 min -> 300, Low Volt 140 -> 150) */
+    edit_settings_uv     = ModelHandle_GetUnderVolt();
+    edit_settings_ov     = ModelHandle_GetOverVolt();
+    edit_settings_ol     = (int)ModelHandle_GetOverloadLimit();
+    edit_settings_ul     = (int)ModelHandle_GetUnderloadLimit();
     edit_settings_maxrun = ModelHandle_GetMaxRunTime();
-    if (edit_settings_maxrun > 300) edit_settings_maxrun = 300;
     edit_settings_pwrrest = ModelHandle_GetPowerRestoreMode();
     edit_settings_factory_yes = false;
     RTC_GetTimeDate();
@@ -959,7 +956,7 @@ void increase_edit_value(uint8_t step)
         case UI_SETTINGS_GAP:
             edit_settings_gap_s+=step; if(edit_settings_gap_s>15)edit_settings_gap_s=15; break;
         case UI_SETTINGS_RETRY:
-            edit_settings_retry+=step; if(edit_settings_retry>180)edit_settings_retry=180; break;
+            edit_settings_retry+=step; if(edit_settings_retry>300)edit_settings_retry=300; break;
         case UI_SETTINGS_UV:
             if(edit_settings_uv==0)edit_settings_uv=150;
             else{edit_settings_uv+=step;if(edit_settings_uv>200)edit_settings_uv=200;} break;

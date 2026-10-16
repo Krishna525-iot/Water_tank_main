@@ -515,7 +515,7 @@ void ModelHandle_LoadSettingsFromEEPROM(void)
     sys.retry_count    = (b.retry > RETRY_COUNT_MAX) ? RETRY_COUNT_MAX : b.retry;
     sys.uv_limit       = b.uv;
     sys.ov_limit       = b.ov;
-    sys.maxrun_min     = b.maxrun;
+    sys.maxrun_min     = (b.maxrun > 300) ? 300 : b.maxrun;   /* max 300 min */
     sys.overload       = b.over10  / 10.0f;
     sys.underload      = b.under10 / 10.0f;
     sys.dry_run_enable = b.dry_enable;
@@ -902,7 +902,7 @@ void ModelHandle_ForcePowerRestoreModeEarly(uint8_t mode)
 void ModelHandle_SetDryRunTime(uint32_t seconds)
 {
     if (seconds < 10)    seconds = 10;
-    if (seconds > 10800) seconds = 10800;
+    if (seconds > 18000) seconds = 18000;   /* testing gap max 300 min */
     sys.dry_run_time_s = seconds;
     ModelHandle_SaveSettingsToEEPROM();
 }
@@ -2933,7 +2933,7 @@ void ModelHandle_SetUserSettings(uint32_t gap_seconds,
 {
     if (gap_seconds > 86400UL) gap_seconds = 86400UL;
     if (retry > RETRY_COUNT_MAX) retry     = RETRY_COUNT_MAX;
-    if (maxrun_min > 1440)     maxrun_min  = 1440;
+    if (maxrun_min > 300)      maxrun_min  = 300;    /* Max Run max 300 min */
     sys.gap_time_s  = gap_seconds;
     sys.retry_count = retry;
     sys.uv_limit    = uv_limit;
