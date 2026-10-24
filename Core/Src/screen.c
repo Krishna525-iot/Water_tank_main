@@ -441,8 +441,12 @@ static void show_menu(void)
  * sits on ~2.5 V, so only the top half can clip at the 3.3 V ADC limit.
  * gain = peak / room above the centre. 66 % at ~230 V mains is ideal: the
  * wave stays unclipped up to ~290 V and is still well resolved. The screen
- * shows a score, 100 % = ideal gain, 80 % = edge of the OK band (55-77 %). */
+ * shows a score, 100 % = ideal gain, 80 % = edge of the OK band (55-77 %).
+ * Line 2 gives no turning direction - it differs from pot to pot (16-10/
+ * 24-10) - but the signal level (RMS x100), which still moves while the
+ * wave is clipped and the score sits at 0: falling = right way for HIGH. */
 extern volatile float g_zmptMinV, g_zmptMaxV;
+extern float adc_rms;
 #define VSENSE_GAIN_IDEAL_PCT  66.0f
 #define VSENSE_SCORE_PER_PCT   1.8f    /* score lost per % of gain off ideal */
 #define VSENSE_SCORE_OK        80
@@ -460,12 +464,20 @@ static void show_vsense(void)
     float sc     = 100.0f - VSENSE_SCORE_PER_PCT * (off < 0.0f ? -off : off);
     unsigned score = (clip || sc < 0.0f) ? 0u : (unsigned)(sc + 0.5f);
 
+    char l1[17];
+    unsigned lvl = (unsigned)(adc_rms * 100.0f + 0.5f);
+    if (lvl > 999u) lvl = 999u;
+
     snprintf(l0, sizeof(l0), "Pot setting %3u%%", score);
     lcd_line0(l0);
-    if (peak < 0.05f)                lcd_line1("NO SIGNAL");
+    if (peak < 0.05f)                  lcd_line1("NO SIGNAL");
     else if (score >= VSENSE_SCORE_OK) lcd_line1("OK-CAL V IN APP");
-    else if (clip || off > 0.0f)     lcd_line1("HIGH:TURN ANTICW");
-    else                             lcd_line1("LOW:TURN CLOCKW");
+    else
+    {
+        if (clip || off > 0.0f) snprintf(l1, sizeof(l1), "HIGH:REDUCE  %3u", lvl);
+        else                    snprintf(l1, sizeof(l1), "LOW:RAISE    %3u", lvl);
+        lcd_line1(l1);
+    }
 }
 
 static void show_devset_menu(void)
