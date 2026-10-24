@@ -17,8 +17,16 @@ extern float g_voltageV;   // Volts
 /* ------------------ ACS712 CURRENT ------------------ */
 #define ACS712_ADC_CHANNEL     ADC_CHANNEL_7
 #define ACS712_ZERO_SAMPLES 500
-#define ACS712_FILTER_ALPHA    0.1f   // used only for final smoothing
-#define ACS712_SENS      0.185f   // 185mV per Ampere: board has ACS712ELCTR-05B (5A)
+#define ACS712_FILTER_ALPHA    0.5f   /* final smoothing; was 0.1 (several s to
+                                         follow the load), now ~1 s like the
+                                         voltage (24-10). Trips need 3 s. */
+/* Current sensor (B-02, 24-10): ACS712ELCTR-30A, 66 mV/A at its output.
+ * ACS712_DIVIDER = what reaches PA7: 1.0 with no divider (good to ~8 A
+ * RMS - the output tops 3.3 V above that); 0.6667f with the 10k/20k
+ * divider (to 15 A+). Change only this line when the divider is fitted. */
+#define ACS712_SENS_V_PER_A    0.066f
+#define ACS712_DIVIDER         1.0f
+#define ACS712_SENS            (ACS712_SENS_V_PER_A * ACS712_DIVIDER)
 
 /* ---------------- ZMPT101B VOLTAGE ------------------ */
 #define ZMPT_ADC_CHANNEL       ADC_CHANNEL_6

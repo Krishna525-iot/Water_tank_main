@@ -27,7 +27,11 @@ static float last_raw_current = 0.0f;
      CAL:I:0        - motor on with no load: learn the zero
 -------------------------------------------------------- */
 #define EE_ADDR_CAL_BLOCK  0x0900
-#define CAL_SIG            0xCA1C   /* 0xCA1B: gain was for the 30A scale */
+/* 0xCA1D: current gain for the ACS712-30A (24-10). Older blocks keep only
+ * their voltage factor: 0xCA1C's gain was for the 05B part, 0xCA1B's for
+ * the 30A scale with the wrong 1.25 correction. */
+#define CAL_SIG            0xCA1D
+#define CAL_SIG_05B        0xCA1C
 #define CAL_SIG_OLD        0xCA1B
 /* Voltage factor range. Up to 2000: with the pot at the low end of the
  * V Sensor Adj OK band the factor is ~1100, which 1000 refused. */
@@ -75,9 +79,9 @@ static void cal_load(void)
     CalBlock b;
     EEPROM_ReadBuffer(EE_ADDR_CAL_BLOCK, (uint8_t*)&b, sizeof(b));
     if (b.crc != cal_crc((uint8_t*)&b, sizeof(b) - 2)) return;
-    if (b.sig != CAL_SIG && b.sig != CAL_SIG_OLD) return;
+    if (b.sig != CAL_SIG && b.sig != CAL_SIG_05B && b.sig != CAL_SIG_OLD) return;
     if (b.vFactor > VFACTOR_MIN && b.vFactor < VFACTOR_MAX) zmpt_factor = b.vFactor;
-    /* An old block's current gain was made for the 30A scale: keep only its voltage */
+    /* An older block's current gain was made for another sensor: keep only its voltage */
     if (b.sig == CAL_SIG && b.iGain > 0.1f && b.iGain < 10.0f) acs_gain = b.iGain;
 }
 
@@ -134,21 +138,52 @@ static float acs_read_raw_rms_a(void)
     float sum_dc = 0.0f;
     float sum_sq = 0.0f;
 
+    /* Whole mains cycles only, as for the voltage (24-10): the window is
+     * not a whole number of cycles and the part-cycle at its ends made the
+     * reading jump. Rising crossings of the zero with a hysteresis above
+     * the noise; with no load (no clear crossings) the whole window. */
+    const float off  = acs_zero_offset;
+    const float hyst = 0.012f;
+    bool  armed = false;
+    int   n1 = -1, n2 = -1;
+    float dc1 = 0.0f, sq1 = 0.0f, dc2 = 0.0f, sq2 = 0.0f;
+
     for (uint16_t i = 0; i < SAMPLES; i++)
     {
         float v = adc_read(ACS712_ADC_CHANNEL);
+
+        if (v < off - hyst) armed = true;
+        else if (armed && v >= off + hyst)     /* rising crossing */
+        {
+            armed = false;
+            if (n1 < 0) { n1 = i; dc1 = sum_dc; sq1 = sum_sq; }
+            else        { n2 = i; dc2 = sum_dc; sq2 = sum_sq; }
+        }
+
         sum_dc += v;
 
-        float ac = v - acs_zero_offset;
+        float ac = v - off;
         sum_sq += ac * ac;
+    }
+
+    int n = SAMPLES;
+    if (n1 >= 0 && n2 > n1 && (n2 - n1) > SAMPLES / 4)
+    {
+        n      = n2 - n1;
+        sum_dc = dc2 - dc1;
+        sum_sq = sq2 - sq1;
     }
 
     /* Adaptive offset correction: tracks slow temperature / supply
        drift, does NOT follow the AC waveform */
-    float new_offset = sum_dc / SAMPLES;
+    float new_offset = sum_dc / n;
     acs_zero_offset = (acs_zero_offset * 0.995f) + (new_offset * 0.005f);
 
-    float rms = sqrtf(sum_sq / SAMPLES);
+    /* RMS about the window's own mean (a stored zero that is a little off
+     * would otherwise add to the reading) */
+    float dc_err = new_offset - off;
+    float ms     = sum_sq / n - dc_err * dc_err;
+    float rms    = (ms > 0.0f) ? sqrtf(ms) : 0.0f;
     last_raw_current = (rms / ACS712_SENS) * acs_gain;
     return last_raw_current;
 }
